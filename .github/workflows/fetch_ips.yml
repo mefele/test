@@ -26,6 +26,8 @@ jobs:
           curl -sSL "https://raw.githubusercontent.com/ymyuuu/IPDB/refs/heads/main/BestCF/bestcfv4.txt" > ips_source1.txt
           echo "Fetching IPs from source 2..."
           curl -sSL "https://raw.githubusercontent.com/ethgan/yxip/refs/heads/main/ip.txt" > ips_source2.txt
+          echo "Fetching IPs from source 3..."
+          curl -sSL "https://raw.githubusercontent.com/mefele/test/refs/heads/main/1.txt" > ips_source3.txt
           
           echo "Combining and unique IPs..."
           cat ips_source1.txt ips_source2.txt | grep -Eo "([0-9]{1,3}\.){3}[0-9]{1,3}" | sort -u > all_unique_ips.txt
