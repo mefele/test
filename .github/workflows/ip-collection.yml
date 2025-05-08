@@ -14,7 +14,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo apt-get update
+          for i in {1..3}; do
+            sudo apt-get update && break || sleep 5
+          done
           sudo apt-get install -y iputils-ping geoip-bin
 
       - name: Collect and process IPs
@@ -29,7 +31,12 @@ jobs:
             response=$(curl -s $url)
             if [ $? -eq 0 ]; then
               for ip in $response; do
-                country=$(geoiplookup $ip | awk -F ": " '{print $2}' | awk -F ", " '{print $1 "#" $2}')
+                lookup_result=$(geoiplookup $ip)
+                if [ $? -eq 0 ]; then
+                  country=$(echo "$lookup_result" | awk -F ": " '{print $2}' | awk -F ", " '{print $1 "#" $2}')
+                else
+                  country="UNKNOWN"
+                fi
                 echo "$ip#$country" >> $OUTPUT_FILE
               done
             fi
