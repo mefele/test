@@ -1,0 +1,136 @@
+name: Fetch and Geolocate IPs with ipinfo.io
+
+on:
+  schedule:
+    # 每3小时运行一次 (0, 3, 6, 9, 12, 15, 18, 21点 UTC)
+    - cron: '0 */3 * * *'
+  workflow_dispatch: # 允许手动触发
+
+permissions:
+  contents: write # 允许工作流写入仓库
+
+jobs:
+  fetch_and_process:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install jq (JSON processor)
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Fetch IPs from sources
+        id: fetch_ips
+        run: |
+          echo "Fetching IPs from source 1..."
+          curl -sSL "https://raw.githubusercontent.com/ymyuuu/IPDB/refs/heads/main/BestCF/bestcfv4.txt" > ips_source1.txt
+          echo "Fetching IPs from source 2..."
+          curl -sSL "https://raw.githubusercontent.com/ethgan/yxip/refs/heads/main/ip.txt" > ips_source2.txt
+          
+          echo "Combining and unique IPs..."
+          cat ips_source1.txt ips_source2.txt | grep -Eo "([0-9]{1,3}\.){3}[0-9]{1,3}" | sort -u > all_unique_ips.txt
+          
+          echo "Total unique IPs found: $(wc -l < all_unique_ips.txt)"
+          if [ ! -s all_unique_ips.txt ]; then
+            echo "No IPs found to process."
+            echo "NO_IPS=true" >> $GITHUB_ENV
+          else
+            echo "NO_IPS=false" >> $GITHUB_ENV
+          fi
+
+      - name: Geolocate IPs and format (using ipinfo.io)
+        if: env.NO_IPS == 'false'
+        run: |
+          echo "Starting geolocation process with ipinfo.io..."
+          OUTPUT_FILE="geolocated_ips.txt"
+          ERROR_LOG_FILE="geolocation_errors.txt"
+          > "$OUTPUT_FILE" 
+          > "$ERROR_LOG_FILE"
+
+          # 函数：将国家代码映射到中文名称
+          get_chinese_country_name() {
+            case "$1" in
+              "US") echo "美国";;
+              "CA") echo "加拿大";;
+              "CN") echo "中国";;
+              "HK") echo "中国香港";;
+              "TW") echo "中国台湾";;
+              "JP") echo "日本";;
+              "KR") echo "韩国";;
+              "SG") echo "新加坡";;
+              "GB") echo "英国";;
+              "DE") echo "德国";;
+              "FR") echo "法国";;
+              "AU") echo "澳大利亚";;
+              "NL") echo "荷兰";;
+              "RU") echo "俄罗斯";;
+              "IN") echo "印度";;
+              "BR") echo "巴西";;
+              "VN") echo "越南";;
+              "MY") echo "马来西亚";;
+              "TH") echo "泰国";;
+              "ID") echo "印度尼西亚";;
+              # 在此添加更多常见的国家代码和中文名称映射
+              *) echo "$1";; # 如果没有匹配，返回原始国家代码
+            esac
+          }
+          export -f get_chinese_country_name # 使函数在子shell中可用
+
+          while IFS= read -r ip; do
+            if [ -z "$ip" ]; then
+              continue
+            fi
+
+            echo "Processing IP: $ip"
+            # 使用 ipinfo.io 查询。免费版不需要API Key，但有频率限制。
+            # 如果您有API Key, 使用: response=$(curl -sSL "https://ipinfo.io/${ip}?token=YOUR_API_KEY")
+            response=$(curl -sSL "https://ipinfo.io/${ip}/json")
+            
+            # 检查响应是否包含 "country" 字段来判断是否成功
+            # ipinfo.io 对于错误请求或无效IP可能返回不同的错误结构
+            if echo "$response" | jq -e '.country' > /dev/null; then
+              countryCode=$(echo "$response" | jq -r .country) # 通常是两位国家代码, e.g., "US"
+              queryIp=$(echo "$response" | jq -r .ip) # API返回的IP
+
+              if [ -z "$countryCode" ] || [ "$countryCode" = "null" ]; then
+                echo "Warning: Geolocation data incomplete for IP $queryIp. API Response: $response" >> "$ERROR_LOG_FILE"
+                echo "${queryIp}#UNKNOWN" >> "$OUTPUT_FILE"
+              else
+                # 获取中文国家名称
+                chineseCountryName=$(get_chinese_country_name "$countryCode")
+                echo "${queryIp}#${countryCode}${chineseCountryName}" >> "$OUTPUT_FILE"
+              fi
+            else
+              # 尝试提取错误信息（如果存在）
+              errorMessage=$(echo "$response" | jq -r '.error.message // .message // "Unknown error or IP not found"')
+              echo "Error geolocating IP $ip: $errorMessage. API Response: $response" >> "$ERROR_LOG_FILE"
+              echo "${ip}#ERROR_GEO" >> "$OUTPUT_FILE"
+            fi
+            
+            # 适当延时以避免超出免费套餐的速率限制 (ipinfo.io 免费版大约 50k/月)
+            # 对于每3小时运行一次，如果IP数量不多，1秒延时可能足够
+            sleep 1 
+          done < all_unique_ips.txt
+
+          echo "Geolocation process finished. Results in $OUTPUT_FILE"
+          if [ -s "$ERROR_LOG_FILE" ]; then
+            echo "Some errors occurred during geolocation. Check $ERROR_LOG_FILE for details."
+          fi
+
+      - name: Commit and push if changes
+        if: env.NO_IPS == 'false'
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          
+          git add geolocated_ips.txt geolocation_errors.txt
+          
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Update geolocated IP list (ipinfo.io) ($(date -u +'%Y-%m-%d %H:%M:%S UTC'))"
+            git push
+            echo "Changes committed and pushed."
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
