@@ -62,10 +62,9 @@ jobs:
           > "$OUTPUT_FILE" 
           > "$ERROR_LOG_FILE"
 
-          # 函数：将国家代码映射到中文名称 (ipdata.co会提供英文名，这里做补充)
           get_chinese_country_name() {
             local code="$1"
-            local english_name="$2" # 从ipdata.co获取的英文名
+            local english_name="$2"
             case "$code" in
               "US") echo "美国";; "CA") echo "加拿大";; "CN") echo "中国";;
               "HK") echo "中国香港";; "TW") echo "中国台湾";; "JP") echo "日本";;
@@ -74,30 +73,27 @@ jobs:
               "NL") echo "荷兰";; "RU") echo "俄罗斯";; "IN") echo "印度";;
               "BR") echo "巴西";; "VN") echo "越南";; "MY") echo "马来西亚";;
               "TH") echo "泰国";; "ID") echo "印度尼西亚";;
-              # 可以根据需要添加更多，或者如果ipdata.co的英文名足够好，就用英文名
-              *) echo "$english_name";; # 如果没有匹配，返回ipdata.co提供的国家名
+              *) echo "$english_name";;
             esac
           }
           export -f get_chinese_country_name
 
-          # 正则表达式判断是否为IP地址
           is_ip_address() {
             local target="$1"
             if [[ "$target" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-              return 0 # true
+              return 0
             else
-              return 1 # false
+              return 1
             fi
           }
 
           while IFS= read -r target_line; do
-            # 去除可能的CRLF行尾 (Windows换行符) 和前后空格
-            target_line=$(echo "$target_line" | tr -d '\r' | xargs)
+            target_line=$(echo "$target_line" | tr -d '\r' | xargs) # Clean input
             if [ -z "$target_line" ]; then
               continue
             fi
 
-            original_target="$target_line" # 保存原始输入行，用于最终输出
+            original_target="$target_line"
             ip_to_query=""
 
             if is_ip_address "$target_line"; then
@@ -105,12 +101,15 @@ jobs:
               echo "Processing IP: $ip_to_query (from input: $original_target)"
             else
               echo "Processing Domain: $target_line, attempting to resolve..."
-              # 使用 dig 获取A记录，只取第一个IP
-              resolved_ip=$(dig +short A "$target_line" | head -n 1)
+              # 改进的dig命令，优先获取A记录的IP，并过滤确保是IP格式
+              resolved_ip=$(dig +short A "$target_line" | grep -Eo "([0-9]{1,3}\.){3}[0-9]{1,3}" | head -n 1)
+              
               if [ -z "$resolved_ip" ]; then
-                echo "Error: Could not resolve domain $target_line" >> "$ERROR_LOG_FILE"
+                # 如果A记录没有直接IP，尝试解析AAAA后获取IP (更复杂，暂时简化)
+                # 或者直接标记为解析失败
+                echo "Error: Could not resolve domain $target_line to a valid IP" >> "$ERROR_LOG_FILE"
                 echo "$original_target#DOMAIN_RESOLUTION_FAILED" >> "$OUTPUT_FILE"
-                sleep 0.5 # 短暂延时
+                sleep 0.5 
                 continue
               else
                 ip_to_query="$resolved_ip"
@@ -118,44 +117,39 @@ jobs:
               fi
             fi
             
-            # 使用 ipdata.co 查询
-            # fields参数选择我们需要的字段，减少数据传输和处理
-            # language=zh-CN 尝试获取中文威胁信息，国家名通常默认是英文
             api_url="https://api.ipdata.co/${ip_to_query}?api-key=${IPDATA_API_KEY}&fields=ip,country_name,country_code"
             response=$(curl -sSL "$api_url")
             
-            # 检查响应是否包含 "country_code" 来判断成功
-            if echo "$response" | jq -e '.country_code' > /dev/null; then
-              countryCode=$(echo "$response" | jq -r .country_code)
-              countryNameEn=$(echo "$response" | jq -r .country_name) # ipdata.co 返回的英文国家名
-              queryIp=$(echo "$response" | jq -r .ip) # API确认的IP
+            # 检查响应中是否存在 country_code 并且不为 null
+            countryCode=$(echo "$response" | jq -r .country_code)
+            countryNameEn=$(echo "$response" | jq -r .country_name)
+            queryIp=$(echo "$response" | jq -r .ip) # API确认的IP
 
-              if [ -z "$countryCode" ] || [ "$countryCode" = "null" ] || [ -z "$countryNameEn" ] || [ "$countryNameEn" = "null" ]; then
-                echo "Warning: Geolocation data incomplete for IP $queryIp (from target $original_target). API Response: $response" >> "$ERROR_LOG_FILE"
-                echo "$original_target#${queryIp}#UNKNOWN_GEO" >> "$OUTPUT_FILE"
-              else
-                # 获取自定义的中文国家名称
-                chineseCountryName=$(get_chinese_country_name "$countryCode" "$countryNameEn")
-                echo "$original_target#${countryCode}${chineseCountryName}" >> "$OUTPUT_FILE"
-              fi
+            if [ "$countryCode" != "null" ] && [ -n "$countryCode" ] && [ "$countryNameEn" != "null" ] && [ -n "$countryNameEn" ]; then
+              chineseCountryName=$(get_chinese_country_name "$countryCode" "$countryNameEn")
+              echo "$original_target#${countryCode}${chineseCountryName}" >> "$OUTPUT_FILE"
             else
-              errorMessage=$(echo "$response" | jq -r '.message // "Unknown error or IP not found by ipdata.co"')
-              echo "Error geolocating IP $ip_to_query (from target $original_target): $errorMessage. API Response: $response" >> "$ERROR_LOG_FILE"
-              echo "$original_target#${ip_to_query}#ERROR_GEO" >> "$OUTPUT_FILE"
+              # 如果 country_code 或 country_name 为 null，但API请求本身可能没报错 (只是没数据)
+              # 检查是否有明确的API错误消息
+              apiErrorMessage=$(echo "$response" | jq -r '.message // ""')
+              if [ -n "$apiErrorMessage" ]; then
+                 # API返回了明确的错误消息（例如 "not a valid IPv4 or IPv6 address"）
+                echo "Error geolocating (API Msg: $apiErrorMessage) for IP $ip_to_query (from target $original_target). API Response: $response" >> "$ERROR_LOG_FILE"
+                echo "$original_target#${ip_to_query}#API_ERROR_OR_INVALID_IP" >> "$OUTPUT_FILE"
+              else
+                # API没有明确错误，但国家信息为null
+                echo "Warning: Geolocation data (country_code/name is null) for IP $ip_to_query (from target $original_target). API Response: $response" >> "$ERROR_LOG_FILE"
+                echo "$original_target#${queryIp}#GEO_DATA_NULL" >> "$OUTPUT_FILE"
+              fi
             fi
             
-            # ipdata.co 免费版每月1500次请求，务必控制频率
-            # 1500 / (30天 * 24小时/3小时的运行次数) = 1500 / (30*8) = 1500 / 240 ~= 6次请求/每次运行
-            # 如果IP列表很长，这个延时需要非常大，或者升级ipdata.co套餐
-            # 这里假设每次运行处理的IP不多，设置一个保守延时
-            sleep 2 # 每次API调用后延时2秒
+            sleep 2 
           done < all_unique_targets.txt
 
           echo "Geolocation process finished. Results in $OUTPUT_FILE"
           if [ -s "$ERROR_LOG_FILE" ]; then
             echo "Some errors occurred during geolocation. Check $ERROR_LOG_FILE for details."
           fi
-
       - name: Commit and push if changes
         if: env.NO_TARGETS == 'false' && env.IPDATA_API_KEY != ''
         run: |
