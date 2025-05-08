@@ -1,0 +1,47 @@
+name: IP Collection
+
+on:
+  schedule:
+    - cron: '0 */3 * * *'
+
+jobs:
+  collect-ips:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iputils-ping geoip-bin
+
+      - name: Collect and process IPs
+        run: |
+          URLS=(
+            "https://raw.githubusercontent.com/ymyuuu/IPDB/refs/heads/main/BestCF/bestcfv4.txt"
+            "https://raw.githubusercontent.com/ethgan/yxip/refs/heads/main/ip.txt"
+          )
+          OUTPUT_FILE="collected_ips.txt"
+          > $OUTPUT_FILE
+          for url in "${URLS[@]}"; do
+            response=$(curl -s $url)
+            if [ $? -eq 0 ]; then
+              for ip in $response; do
+                country=$(geoiplookup $ip | awk -F ": " '{print $2}' | awk -F ", " '{print $1 "#" $2}')
+                echo "$ip#$country" >> $OUTPUT_FILE
+              done
+            fi
+          done
+
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add collected_ips.txt
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Update collected IPs"
+            git push
+          fi    
