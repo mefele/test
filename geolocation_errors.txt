@@ -1,0 +1,193 @@
+Error geolocating IP 104.16.149.10 (from target 104.16.149.10): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.16.149.10",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.16.15.6 (from target 104.16.15.6): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.16.15.6",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.16.205.59 (from target 104.16.205.59): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.16.205.59",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.16.46.189 (from target 104.16.46.189): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.16.46.189",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.16.61.9 (from target 104.16.61.9): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.16.61.9",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.16.70.7 (from target 104.16.70.7): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.16.70.7",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.17.56.139 (from target 104.17.56.139): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.17.56.139",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.18.12.7 (from target 104.18.12.7): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.18.12.7",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.18.13.52 (from target 104.18.13.52): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.18.13.52",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.18.191.120 (from target 104.18.191.120): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.18.191.120",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.18.191.230 (from target 104.18.191.230): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.18.191.230",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.18.200.174 (from target 104.18.200.174): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.18.200.174",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.18.24.158 (from target 104.18.24.158): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.18.24.158",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.18.35.47 (from target 104.18.35.47): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.18.35.47",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.18.47.227 (from target 104.18.47.227): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.18.47.227",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.18.65.145 (from target 104.18.65.145): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.18.65.145",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.18.78.13 (from target 104.18.78.13): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.18.78.13",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.19.109.131 (from target 104.19.109.131): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.19.109.131",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.19.115.57 (from target 104.19.115.57): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.19.115.57",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.19.122.186 (from target 104.19.122.186): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.19.122.186",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.19.123.178 (from target 104.19.123.178): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.19.123.178",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.19.142.223 (from target 104.19.142.223): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.19.142.223",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.19.206.162 (from target 104.19.206.162): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.19.206.162",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.19.50.250 (from target 104.19.50.250): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.19.50.250",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.19.78.76 (from target 104.19.78.76): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.19.78.76",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.19.94.69 (from target 104.19.94.69): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.19.94.69",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.19.95.202 (from target 104.19.95.202): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.19.95.202",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.19.99.70 (from target 104.19.99.70): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.19.99.70",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.24.207.94 (from target 104.24.207.94): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.24.207.94",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.24.223.250 (from target 104.24.223.250): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.24.223.250",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.24.61.122 (from target 104.24.61.122): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.24.61.122",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 162.159.11.248 (from target 162.159.11.248): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "162.159.11.248",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 162.159.207.188 (from target 162.159.207.188): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "162.159.207.188",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 172.64.144.232 (from target 172.64.144.232): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "172.64.144.232",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 172.67.170.125 (from target 172.67.170.125): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "172.67.170.125",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.16.148.244 (from target fbi.gov): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.16.148.244",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.17.64.70 (from target www.glassdoor.com): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.17.64.70",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP 104.16.143.237 (from target www.udemy.com): Unknown error or IP not found by ipdata.co. API Response: {
+  "ip": "104.16.143.237",
+  "country_name": null,
+  "country_code": null
+}
+Error geolocating IP www.visa.com.cdn.cloudflare.net. (from target www.visa.com): www.visa.com.cdn.cloudflare.net. is not a valid IPv4 or IPv6 address.. API Response: {"message":"www.visa.com.cdn.cloudflare.net. is not a valid IPv4 or IPv6 address."}
+Error geolocating IP www.visa.com.hk.cdn.cloudflare.net. (from target www.visa.com.hk): www.visa.com.hk.cdn.cloudflare.net. is not a valid IPv4 or IPv6 address.. API Response: {"message":"www.visa.com.hk.cdn.cloudflare.net. is not a valid IPv4 or IPv6 address."}
+Error geolocating IP www.visakorea.com.cdn.cloudflare.net. (from target www.visakorea.com): www.visakorea.com.cdn.cloudflare.net. is not a valid IPv4 or IPv6 address.. API Response: {"message":"www.visakorea.com.cdn.cloudflare.net. is not a valid IPv4 or IPv6 address."}
