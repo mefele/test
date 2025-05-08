@@ -1,55 +1,57 @@
-name: IP Collection
+name: Collect and Filter US IPs
 
 on:
-  schedule:
-    - cron: '0 */3 * * *'
   workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'
 
 jobs:
-  collect-ips:
+  fetch_and_process_ips:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Fetch IP list from BestCF
         run: |
-          for i in {1..3}; do
-            sudo apt-get update && break || sleep 5
-          done
-          sudo apt-get install -y iputils-ping geoip-bin
+          BESTCF_IPS=$(curl -s https://raw.githubusercontent.com/ymyuuu/IPDB/refs/heads/main/BestCF/bestcfv4.txt)
+          echo "BESTCF_IPS<<EOF" >> $GITHUB_ENV
+          echo "$BESTCF_IPS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
 
-      - name: Collect and process IPs
+      - name: Fetch IP list from yxip
         run: |
-          URLS=(
-            "https://raw.githubusercontent.com/ymyuuu/IPDB/refs/heads/main/BestCF/bestcfv4.txt"
-            "https://raw.githubusercontent.com/ethgan/yxip/refs/heads/main/ip.txt"
-          )
-          OUTPUT_FILE="collected_ips.txt"
-          > $OUTPUT_FILE
-          for url in "${URLS[@]}"; do
-            response=$(curl -s $url)
-            if [ $? -eq 0 ]; then
-              for ip in $response; do
-                lookup_result=$(geoiplookup $ip)
-                if [ $? -eq 0 ]; then
-                  country=$(echo "$lookup_result" | awk -F ": " '{print $2}' | awk -F ", " '{print $1 "#" $2}')
-                else
-                  country="UNKNOWN"
-                fi
-                echo "$ip#$country" >> $OUTPUT_FILE
-              done
+          YXIP_IPS=$(curl -s https://raw.githubusercontent.com/ethgan/yxip/refs/heads/main/ip.txt)
+          echo "YXIP_IPS<<EOF" >> $GITHUB_ENV
+          echo "$YXIP_IPS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Process IPs and Filter US Addresses
+        run: |
+          us_ips=""
+          echo "Processing BestCF IPs:"
+          grep -E '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' <<< "$BESTCF_IPS" | while IFS= read -r ip; do
+            # Placeholder for IP geolocation - replace with actual logic
+            if [[ "$ip" == *"104."* ]]; then # Example: Assume IPs starting with 104. are US
+              us_ips+="${ip}#US美国\n"
+              echo "Found US IP (BestCF): ${ip}#US美国"
             fi
           done
+          echo "Processing yxip IPs:"
+          grep -E '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' <<< "$YXIP_IPS" | while IFS= read -r ip; do
+            # Placeholder for IP geolocation - replace with actual logic
+            if [[ "$ip" == *"104."* ]]; then # Example: Assume IPs starting with 104. are US
+              us_ips+="${ip}#US美国\n"
+              echo "Found US IP (yxip): ${ip}#US美国"
+            fi
+          done
+          echo "US_IPS<<EOF" >> $GITHUB_OUTPUT
+          echo "$us_ips" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        id: filter_ips
 
-      - name: Commit and push changes
+      - name: Display US IPs
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add collected_ips.txt
-          if git diff --staged --quiet; then
-            echo "No changes to commit."
-          else
-            git commit -m "Update collected IPs"
-            git push
-          fi    
+          echo "--- US IP Addresses ---"
+          echo "${{ steps.filter_ips.outputs.US_IPS }}"
+          echo "-------------------------"
