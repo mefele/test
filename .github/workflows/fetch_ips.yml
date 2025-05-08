@@ -1,4 +1,4 @@
-name: Fetch and Geolocate IPs with ipinfo.io
+name: Fetch and Geolocate IPs with ipinfo.io (3 Sources)
 
 on:
   schedule:
@@ -22,15 +22,15 @@ jobs:
       - name: Fetch IPs from sources
         id: fetch_ips
         run: |
-          echo "Fetching IPs from source 1..."
+          echo "Fetching IPs from source 1 (ymyuuu)..."
           curl -sSL "https://raw.githubusercontent.com/ymyuuu/IPDB/refs/heads/main/BestCF/bestcfv4.txt" > ips_source1.txt
-          echo "Fetching IPs from source 2..."
+          echo "Fetching IPs from source 2 (ethgan)..."
           curl -sSL "https://raw.githubusercontent.com/ethgan/yxip/refs/heads/main/ip.txt" > ips_source2.txt
-          echo "Fetching IPs from source 3..."
+          echo "Fetching IPs from source 3 (mefele)..."
           curl -sSL "https://raw.githubusercontent.com/mefele/test/refs/heads/main/1.txt" > ips_source3.txt
           
-          echo "Combining and unique IPs..."
-          cat ips_source1.txt ips_source2.txt | grep -Eo "([0-9]{1,3}\.){3}[0-9]{1,3}" | sort -u > all_unique_ips.txt
+          echo "Combining and unique IPs from 3 sources..."
+          cat ips_source1.txt ips_source2.txt ips_source3.txt | grep -Eo "([0-9]{1,3}\.){3}[0-9]{1,3}" | sort -u > all_unique_ips.txt
           
           echo "Total unique IPs found: $(wc -l < all_unique_ips.txt)"
           if [ ! -s all_unique_ips.txt ]; then
@@ -85,32 +85,26 @@ jobs:
 
             echo "Processing IP: $ip"
             # 使用 ipinfo.io 查询。免费版不需要API Key，但有频率限制。
-            # 如果您有API Key, 使用: response=$(curl -sSL "https://ipinfo.io/${ip}?token=YOUR_API_KEY")
+            # 如果您有API Key, 使用: response=$(curl -sSL "https://ipinfo.io/${ip}/json?token=YOUR_API_KEY")
             response=$(curl -sSL "https://ipinfo.io/${ip}/json")
             
-            # 检查响应是否包含 "country" 字段来判断是否成功
-            # ipinfo.io 对于错误请求或无效IP可能返回不同的错误结构
             if echo "$response" | jq -e '.country' > /dev/null; then
-              countryCode=$(echo "$response" | jq -r .country) # 通常是两位国家代码, e.g., "US"
-              queryIp=$(echo "$response" | jq -r .ip) # API返回的IP
+              countryCode=$(echo "$response" | jq -r .country) 
+              queryIp=$(echo "$response" | jq -r .ip) 
 
               if [ -z "$countryCode" ] || [ "$countryCode" = "null" ]; then
                 echo "Warning: Geolocation data incomplete for IP $queryIp. API Response: $response" >> "$ERROR_LOG_FILE"
                 echo "${queryIp}#UNKNOWN" >> "$OUTPUT_FILE"
               else
-                # 获取中文国家名称
                 chineseCountryName=$(get_chinese_country_name "$countryCode")
                 echo "${queryIp}#${countryCode}${chineseCountryName}" >> "$OUTPUT_FILE"
               fi
             else
-              # 尝试提取错误信息（如果存在）
               errorMessage=$(echo "$response" | jq -r '.error.message // .message // "Unknown error or IP not found"')
               echo "Error geolocating IP $ip: $errorMessage. API Response: $response" >> "$ERROR_LOG_FILE"
               echo "${ip}#ERROR_GEO" >> "$OUTPUT_FILE"
             fi
             
-            # 适当延时以避免超出免费套餐的速率限制 (ipinfo.io 免费版大约 50k/月)
-            # 对于每3小时运行一次，如果IP数量不多，1秒延时可能足够
             sleep 1 
           done < all_unique_ips.txt
 
@@ -130,7 +124,7 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit."
           else
-            git commit -m "Update geolocated IP list (ipinfo.io) ($(date -u +'%Y-%m-%d %H:%M:%S UTC'))"
+            git commit -m "Update geolocated IP list (ipinfo.io, 3 sources) ($(date -u +'%Y-%m-%d %H:%M:%S UTC'))"
             git push
             echo "Changes committed and pushed."
           fi
