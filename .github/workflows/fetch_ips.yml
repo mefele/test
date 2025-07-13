@@ -1,182 +1,275 @@
-name: Fetch, Resolve, and Geolocate IPs/Domains (with ipinfo.io)
+name: Collect Telecom IP Addresses with Geolocation
 
 on:
   schedule:
-    # 每3小时运行一次 (0, 3, 6, 9, 12, 15, 18, 21点 UTC)
-    - cron: '0 */3 * * *'
+    # 每天UTC时间00:00执行 (北京时间08:00)
+    - cron: '0 0 * * *'
   workflow_dispatch: # 允许手动触发
 
 permissions:
   contents: write # 允许工作流写入仓库
 
 jobs:
-  fetch_and_process:
+  collect-telecom-ips:
     runs-on: ubuntu-latest
-    # 不再需要 IPDATA_API_KEY
-    # env:
-    #   IPDATA_API_KEY: ${{ secrets.IPDATA_API_KEY }}
+    
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install dependencies (jq, dig)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq dnsutils # dnsutils 包含 dig
-
-      # 不再需要检查 IPDATA_API_KEY
-      # - name: Check for IPDATA_API_KEY
-      #   run: |
-      #     if [ -z "${IPDATA_API_KEY}" ]; then
-      #       echo "Error: IPDATA_API_KEY secret is not set. Please add it to your repository secrets."
-      #       exit 1
-      #     fi
-      #     echo "IPDATA_API_KEY found."
-
-      - name: Fetch targets (IPs/Domains) from sources
-        id: fetch_targets
-        run: |
-          echo "Fetching targets from source 1 (ymyuuu)..."
-          curl -sSL "https://raw.githubusercontent.com/ymyuuu/IPDB/refs/heads/main/BestCF/bestcfv4.txt" > targets_source1.txt
-          echo "Fetching targets from source 2 (ethgan)..."
-          curl -sSL "https://raw.githubusercontent.com/ethgan/yxip/refs/heads/main/ip.txt" > targets_source2.txt
-          echo "Fetching targets from source 3 (mefele)..."
-          curl -sSL "https://raw.githubusercontent.com/mefele/test/refs/heads/main/1.txt" > targets_source3.txt
-          
-          echo "Combining and unique targets from 3 sources..."
-          cat targets_source1.txt targets_source2.txt targets_source3.txt | sed '/^\s*$/d' | sort -u > all_unique_targets.txt
-          
-          echo "Total unique targets found: $(wc -l < all_unique_targets.txt)"
-          if [ ! -s all_unique_targets.txt ]; then
-            echo "No targets found to process."
-            echo "NO_TARGETS=true" >> $GITHUB_ENV
-          else
-            echo "NO_TARGETS=false" >> $GITHUB_ENV
-          fi
-
-      - name: Resolve domains and geolocate (using ipinfo.io)
-        # if: env.NO_TARGETS == 'false' && env.IPDATA_API_KEY != '' # 移除API Key检查
-        if: env.NO_TARGETS == 'false'
-        run: |
-          echo "Starting domain resolution and geolocation process with ipinfo.io..."
-          OUTPUT_FILE="geolocated_targets.txt"
-          ERROR_LOG_FILE="geolocation_errors.txt"
-          > "$OUTPUT_FILE" 
-          > "$ERROR_LOG_FILE"
-
-          # 函数：将国家代码映射到中文名称
-          get_chinese_country_name() {
-            local code="$1"
-            # ipinfo.io 免费版通常不直接返回英文国家名，所以第二个参数可能为空
-            # 我们主要依赖国家代码进行映射
-            case "$code" in
-              "US") echo "美国";; "CA") echo "加拿大";; "CN") echo "中国";;
-              "HK") echo "中国香港";; "TW") echo "中国台湾";; "JP") echo "日本";;
-              "KR") echo "韩国";; "SG") echo "新加坡";; "GB") echo "英国";;
-              "DE") echo "德国";; "FR") echo "法国";; "AU") echo "澳大利亚";;
-              "NL") echo "荷兰";; "RU") echo "俄罗斯";; "IN") echo "印度";;
-              "BR") echo "巴西";; "VN") echo "越南";; "MY") echo "马来西亚";;
-              "TH") echo "泰国";; "ID") echo "印度尼西亚";;
-              "CY") echo "塞浦路斯";; # 从您的结果中添加
-              "SC") echo "塞舌尔";;   # 从您的结果中添加
-              "MU") echo "毛里求斯";; # 从您的结果中添加
-              "PH") echo "菲律宾";;   # 从您的结果中添加
-              # 在此添加更多常见的国家代码和中文名称映射
-              *) echo "$code";; # 如果没有匹配，返回原始国家代码 (ipinfo.io可能不返回英文名)
-            esac
-          }
-          export -f get_chinese_country_name
-
-          is_ip_address() {
-            local target="$1"
-            if [[ "$target" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-              return 0 # true
-            else
-              return 1 # false
-            fi
-          }
-
-          while IFS= read -r target_line; do
-            target_line=$(echo "$target_line" | tr -d '\r' | xargs)
-            if [ -z "$target_line" ]; then
-              continue
-            fi
-
-            original_target="$target_line"
-            ip_to_query=""
-
-            if is_ip_address "$target_line"; then
-              ip_to_query="$target_line"
-              echo "Processing IP: $ip_to_query (from input: $original_target)"
-            else
-              echo "Processing Domain: $target_line, attempting to resolve..."
-              resolved_ip=$(dig +short A "$target_line" | grep -Eo "([0-9]{1,3}\.){3}[0-9]{1,3}" | head -n 1)
-              
-              if [ -z "$resolved_ip" ]; then
-                echo "Error: Could not resolve domain $target_line to a valid IP" >> "$ERROR_LOG_FILE"
-                echo "$original_target#DOMAIN_RESOLUTION_FAILED" >> "$OUTPUT_FILE"
-                sleep 0.5 
-                continue
-              else
-                ip_to_query="$resolved_ip"
-                echo "Domain $target_line resolved to IP: $ip_to_query"
-              fi
-            fi
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq dnsutils
+        pip install requests beautifulsoup4 lxml
+    
+    - name: Collect Telecom IPs with Geolocation
+      run: |
+        python3 << 'EOF'
+        import requests
+        import re
+        from bs4 import BeautifulSoup
+        import socket
+        import time
+        import json
+        import subprocess
+        
+        def get_chinese_country_name(code):
+            """将国家代码映射到中文名称"""
+            country_mapping = {
+                "US": "美国", "CA": "加拿大", "CN": "中国",
+                "HK": "中国香港", "TW": "中国台湾", "JP": "日本",
+                "KR": "韩国", "SG": "新加坡", "GB": "英国",
+                "DE": "德国", "FR": "法国", "AU": "澳大利亚",
+                "NL": "荷兰", "RU": "俄罗斯", "IN": "印度",
+                "BR": "巴西", "VN": "越南", "MY": "马来西亚",
+                "TH": "泰国", "ID": "印度尼西亚",
+                "CY": "塞浦路斯", "SC": "塞舌尔", "MU": "毛里求斯",
+                "PH": "菲律宾", "IT": "意大利", "ES": "西班牙",
+                "SE": "瑞典", "NO": "挪威", "DK": "丹麦",
+                "FI": "芬兰", "CH": "瑞士", "AT": "奥地利",
+                "BE": "比利时", "PT": "葡萄牙", "IE": "爱尔兰",
+                "GR": "希腊", "PL": "波兰", "CZ": "捷克",
+                "HU": "匈牙利", "RO": "罗马尼亚", "BG": "保加利亚",
+                "HR": "克罗地亚", "SI": "斯洛文尼亚", "SK": "斯洛伐克",
+                "EE": "爱沙尼亚", "LV": "拉脱维亚", "LT": "立陶宛",
+                "LU": "卢森堡", "MT": "马耳他", "IS": "冰岛",
+                "TR": "土耳其", "UA": "乌克兰", "BY": "白俄罗斯",
+                "MD": "摩尔多瓦", "AL": "阿尔巴尼亚", "BA": "波黑",
+                "MK": "北马其顿", "ME": "黑山", "RS": "塞尔维亚",
+                "XK": "科索沃", "AR": "阿根廷", "CL": "智利",
+                "CO": "哥伦比亚", "PE": "秘鲁", "VE": "委内瑞拉",
+                "UY": "乌拉圭", "PY": "巴拉圭", "BO": "玻利维亚",
+                "EC": "厄瓜多尔", "GY": "圭亚那", "SR": "苏里南",
+                "MX": "墨西哥", "GT": "危地马拉", "BZ": "伯利兹",
+                "SV": "萨尔瓦多", "HN": "洪都拉斯", "NI": "尼加拉瓜",
+                "CR": "哥斯达黎加", "PA": "巴拿马", "CU": "古巴",
+                "JM": "牙买加", "HT": "海地", "DO": "多米尼加",
+                "PR": "波多黎各", "TT": "特立尼达和多巴哥",
+                "BB": "巴巴多斯", "GD": "格林纳达", "LC": "圣卢西亚",
+                "VC": "圣文森特和格林纳丁斯", "AG": "安提瓜和巴布达",
+                "DM": "多米尼克", "KN": "圣基茨和尼维斯",
+                "BS": "巴哈马", "BM": "百慕大", "KY": "开曼群岛",
+                "VI": "美属维尔京群岛", "PR": "波多黎各"
+            }
+            return country_mapping.get(code, code)
+        
+        def query_ip_geolocation(ip):
+            """查询IP地理位置"""
+            try:
+                api_url = f"https://ipinfo.io/{ip}/json"
+                response = requests.get(api_url, timeout=10)
+                response.raise_for_status()
+                
+                data = response.json()
+                country_code = data.get('country')
+                
+                if country_code:
+                    chinese_name = get_chinese_country_name(country_code)
+                    return country_code, chinese_name
+                else:
+                    return None, None
+                    
+            except Exception as e:
+                print(f"查询IP {ip} 地理位置失败: {e}")
+                return None, None
+        
+        def get_telecom_ips():
+            """从指定网站采集电信线路IP地址"""
+            url = "https://cf.090227.xyz/"
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
             
-            # 使用 ipinfo.io 查询
-            # 如果您有 ipinfo.io 的 API Key, 可以替换为:
-            # api_url="https://ipinfo.io/${ip_to_query}/json?token=YOUR_IPINFO_API_KEY"
-            api_url="https://ipinfo.io/${ip_to_query}/json"
-            response=$(curl -sSL "$api_url")
+            try:
+                response = requests.get(url, headers=headers, timeout=30)
+                response.raise_for_status()
+                
+                soup = BeautifulSoup(response.text, 'html.parser')
+                
+                # 查找包含电信线路的IP地址
+                telecom_ips = []
+                
+                # 方法1: 查找包含"电信"或"telecom"关键词的内容
+                text_content = soup.get_text()
+                lines = text_content.split('\n')
+                
+                for line in lines:
+                    if '电信' in line or 'telecom' in line.lower():
+                        # 提取IP地址
+                        ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
+                        ips = re.findall(ip_pattern, line)
+                        telecom_ips.extend(ips)
+                
+                # 方法2: 查找表格或列表中的IP地址
+                tables = soup.find_all('table')
+                for table in tables:
+                    rows = table.find_all('tr')
+                    for row in rows:
+                        cells = row.find_all(['td', 'th'])
+                        row_text = ' '.join([cell.get_text() for cell in cells])
+                        if '电信' in row_text or 'telecom' in row_text.lower():
+                            ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
+                            ips = re.findall(ip_pattern, row_text)
+                            telecom_ips.extend(ips)
+                
+                # 方法3: 查找特定的div或span元素
+                divs = soup.find_all(['div', 'span', 'p'])
+                for div in divs:
+                    if div.text and ('电信' in div.text or 'telecom' in div.text.lower()):
+                        ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
+                        ips = re.findall(ip_pattern, div.text)
+                        telecom_ips.extend(ips)
+                
+                # 如果没有找到电信关键词，尝试直接提取所有IP地址
+                if not telecom_ips:
+                    print("未找到电信关键词，尝试提取所有IP地址...")
+                    ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
+                    all_ips = re.findall(ip_pattern, text_content)
+                    telecom_ips.extend(all_ips)
+                
+                # 去重和验证IP地址
+                valid_ips = []
+                for ip in set(telecom_ips):
+                    try:
+                        socket.inet_aton(ip)
+                        # 过滤掉私有IP地址
+                        octets = ip.split('.')
+                        if not (octets[0] == '10' or 
+                               (octets[0] == '172' and 16 <= int(octets[1]) <= 31) or
+                               (octets[0] == '192' and octets[1] == '168') or
+                               octets[0] == '127'):
+                            valid_ips.append(ip)
+                    except socket.error:
+                        continue
+                
+                return valid_ips
+                
+            except requests.exceptions.RequestException as e:
+                print(f"请求错误: {e}")
+                return []
+            except Exception as e:
+                print(f"处理错误: {e}")
+                return []
+        
+        # 采集IP地址
+        print("开始采集电信线路IP地址...")
+        telecom_ips = get_telecom_ips()
+        
+        if telecom_ips:
+            print(f"找到 {len(telecom_ips)} 个电信IP地址")
             
-            # ipinfo.io 的响应中，国家代码在 .country 字段
-            # IP在 .ip 字段
-            # 检查 .country 是否存在且不为 null
-            countryCode=$(echo "$response" | jq -r .country)
-            queryIp=$(echo "$response" | jq -r .ip) # API确认的IP
-
-            if [ "$countryCode" != "null" ] && [ -n "$countryCode" ]; then
-              # ipinfo.io 免费版可能不直接返回英文国家名，我们主要用 countryCode
-              chineseCountryName=$(get_chinese_country_name "$countryCode")
-              echo "$original_target#${countryCode}${chineseCountryName}" >> "$OUTPUT_FILE"
-            else
-              # 检查是否有明确的API错误消息
-              apiErrorMessage=$(echo "$response" | jq -r '.error.title // .message // ""') # ipinfo.io 的错误结构可能不同
-              if [ -n "$apiErrorMessage" ]; then
-                echo "Error geolocating (API Msg: $apiErrorMessage) for IP $ip_to_query (from target $original_target). API Response: $response" >> "$ERROR_LOG_FILE"
-                echo "$original_target#${ip_to_query}#API_ERROR" >> "$OUTPUT_FILE"
-              else
-                # API没有明确错误，但国家信息为null或缺失
-                echo "Warning: Geolocation data (country_code is null/missing) for IP $ip_to_query (from target $original_target). API Response: $response" >> "$ERROR_LOG_FILE"
-                echo "$original_target#${queryIp}#GEO_DATA_MISSING" >> "$OUTPUT_FILE"
-              fi
-            fi
+            # 查询地理位置并格式化输出
+            results = []
+            error_log = []
             
-            # ipinfo.io 免费版大约 50k/月，每秒请求数也有一定限制
-            sleep 1 # 每次API调用后延时1秒
-          done < all_unique_targets.txt
-
-          echo "Geolocation process finished. Results in $OUTPUT_FILE"
-          if [ -s "$ERROR_LOG_FILE" ]; then
-            echo "Some errors occurred during geolocation. Check $ERROR_LOG_FILE for details."
+            for i, ip in enumerate(sorted(telecom_ips), 1):
+                print(f"正在查询第 {i} 个IP: {ip}")
+                
+                country_code, chinese_name = query_ip_geolocation(ip)
+                
+                if country_code and chinese_name:
+                    # 格式化序号，确保两位数
+                    sequence = f"{i:02d}"
+                    result_line = f"{ip}#{country_code}{chinese_name}{sequence}"
+                    results.append(result_line)
+                    print(f"  结果: {result_line}")
+                else:
+                    # 查询失败的情况
+                    sequence = f"{i:02d}"
+                    result_line = f"{ip}#UNKNOWN未知{sequence}"
+                    results.append(result_line)
+                    error_log.append(f"IP {ip} 地理位置查询失败")
+                    print(f"  查询失败: {result_line}")
+                
+                # 避免API限制，延时1秒
+                time.sleep(1)
+            
+            # 写入结果文件
+            with open('telecom_ips.txt', 'w', encoding='utf-8') as f:
+                for result in results:
+                    f.write(result + '\n')
+            
+            # 写入错误日志
+            if error_log:
+                with open('geolocation_errors.txt', 'w', encoding='utf-8') as f:
+                    for error in error_log:
+                        f.write(error + '\n')
+            
+            print(f"结果已保存到 telecom_ips.txt，共 {len(results)} 条记录")
+            
+            # 显示前5个结果
+            print("前5个结果:")
+            for result in results[:5]:
+                print(f"  {result}")
+                
+        else:
+            print("未找到电信IP地址")
+            # 创建空文件
+            with open('telecom_ips.txt', 'w', encoding='utf-8') as f:
+                f.write("")
+        
+        EOF
+    
+    - name: Check results
+      run: |
+        if [ -f "telecom_ips.txt" ]; then
+          echo "文件创建成功"
+          echo "文件大小: $(wc -l < telecom_ips.txt) 行"
+          echo "文件内容预览:"
+          head -10 telecom_ips.txt
+          if [ -f "geolocation_errors.txt" ]; then
+            echo "错误日志:"
+            cat geolocation_errors.txt
           fi
-
-      - name: Commit and push if changes
-        # if: env.NO_TARGETS == 'false' && env.IPDATA_API_KEY != '' # 移除API Key检查
-        if: env.NO_TARGETS == 'false'
-        run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          
-          git add geolocated_targets.txt geolocation_errors.txt
-          
-          if git diff --staged --quiet; then
-            echo "No changes to commit."
-          else
-            # 更新提交信息以反映使用的是 ipinfo.io
-            git commit -m "Update geolocated IP/Domain list (ipinfo.io) ($(date -u +'%Y-%m-%d %H:%M:%S UTC'))"
-            git push
-            echo "Changes committed and pushed."
-          fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        else
+          echo "文件创建失败"
+        fi
+    
+    - name: Commit and push changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add telecom_ips.txt
+        
+        # 如果有错误日志文件，也提交
+        if [ -f "geolocation_errors.txt" ]; then
+          git add geolocation_errors.txt
+        fi
+        
+        # 检查是否有变更
+        if git diff --staged --quiet; then
+          echo "没有新的IP地址更新"
+        else
+          git commit -m "Update telecom IP addresses with geolocation - $(date +'%Y-%m-%d %H:%M:%S')"
+          git push
+        fi
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: telecom-ips-with-geolocation
+        path: |
+          telecom_ips.txt
+          geolocation_errors.txt
+        retention-days: 30
