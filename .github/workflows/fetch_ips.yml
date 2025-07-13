@@ -191,13 +191,13 @@ jobs:
                 if country_code and chinese_name:
                     # 格式化序号，确保两位数
                     sequence = f"{i:02d}"
-                    result_line = f"{ip}:2053#{country_code}{chinese_name}{sequence}"
+                    result_line = f"{ip}:2096#{country_code}{chinese_name}{sequence}"
                     results.append(result_line)
                     print(f"  结果: {result_line}")
                 else:
                     # 查询失败的情况
                     sequence = f"{i:02d}"
-                    result_line = f"{ip}:2053#UNKNOWN未知{sequence}"
+                    result_line = f"{ip}:2096#UNKNOWN未知{sequence}"
                     results.append(result_line)
                     error_log.append(f"IP {ip} 地理位置查询失败")
                     print(f"  查询失败: {result_line}")
