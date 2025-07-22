@@ -167,12 +167,12 @@ jobs:
                 print(f"Selenium正在访问源3: {url}")
                 driver.get(url)
                 
-                # 优化等待策略：等待第一行数据出现
-                print("等待页面JavaScript加载第一行数据...")
-                WebDriverWait(driver, 30).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "tbody .el-table__row"))
+                # 优化等待策略：等待表格容器出现，并增加超时时间
+                print("等待页面JavaScript加载表格数据（最长90秒）...")
+                WebDriverWait(driver, 90).until(
+                    EC.presence_of_element_located((By.CLASS_NAME, "el-table__body-wrapper"))
                 )
-                print("第一行数据已加载。")
+                print("表格容器已加载。")
                 
                 # 增加强制等待，确保所有JS渲染完成
                 print("额外等待5秒以确保所有数据渲染完成...")
