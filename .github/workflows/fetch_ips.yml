@@ -81,4 +81,197 @@ jobs:
                             (octets[0] == '192' and octets[1] == '168') or
                             octets[0] == '127'):
                         valid_ips.append(ip)
-                except soc
+                except socket.error: # <<< 这里是已修复的语法错误
+                    continue
+            return valid_ips
+
+        def get_ips_from_source1():
+            """从源1 (cf.090227.xyz) 采集电信线路IP"""
+            url = "https://cf.090227.xyz/"
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+            try:
+                response = requests.get(url, headers=headers, timeout=30)
+                response.raise_for_status()
+                soup = BeautifulSoup(response.text, 'html.parser')
+                
+                telecom_ips = []
+                ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
+
+                # 优先策略：查找表格中的行，这是更可靠的关联方式
+                rows = soup.find_all('tr')
+                if rows:
+                    print("在源1中找到表格，正在分析表格行...")
+                    for row in rows:
+                        row_text = row.get_text()
+                        # 检查关键词是否在行内
+                        if '电信' in row_text or 'telecom' in row_text.lower():
+                            # 如果在，则从该行提取IP
+                            ips_in_row = re.findall(ip_pattern, row_text)
+                            if ips_in_row:
+                                telecom_ips.extend(ips_in_row)
+                                print(f"  在包含'电信'的行中找到IP: {ips_in_row}")
+                
+                # 如果表格策略失败或未找到IP，回退到通用的文本块分析
+                if not telecom_ips:
+                    print("表格策略未找到IP或未找到表格，回退到通用文本分析...")
+                    text_content = soup.get_text()
+                    for line in text_content.split('\n'):
+                        if '电信' in line or 'telecom' in line.lower():
+                            ips_in_line = re.findall(ip_pattern, line)
+                            if ips_in_line:
+                                telecom_ips.extend(ips_in_line)
+                                print(f"  在包含'电信'的文本行中找到IP: {ips_in_line}")
+
+                # 最终回退：如果还是没有，就采集所有IP作为备用
+                if not telecom_ips:
+                    print("在源1中未找到电信关键词，提取所有IP作为备用...")
+                    text_content = soup.get_text()
+                    telecom_ips = re.findall(ip_pattern, text_content)
+
+                return telecom_ips
+            except Exception as e:
+                print(f"从源1采集失败: {e}")
+                return []
+        
+        def get_ips_from_source2():
+            """从源2 (ip.164746.xyz) 采集IP"""
+            url = "https://ip.164746.xyz/"
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+            try:
+                response = requests.get(url, headers=headers, timeout=30)
+                response.raise_for_status()
+                soup = BeautifulSoup(response.text, 'html.parser')
+                text_content = soup.get_text()
+                ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
+                all_ips = re.findall(ip_pattern, text_content)
+                return all_ips[:10]
+            except Exception as e:
+                print(f"从源2采集失败: {e}")
+                return []
+
+        def process_and_save(ip_list, filename):
+            """处理IP列表，进行地理位置查询、格式化并保存到文件"""
+            if not ip_list:
+                print(f"IP列表为空，为 {filename} 创建空文件。")
+                with open(filename, 'w', encoding='utf-8') as f:
+                    f.write("")
+                return []
+
+            print(f"开始处理 {len(ip_list)} 个IP并保存到 {filename}...")
+            results = []
+            local_error_log = []
+            
+            for i, ip in enumerate(sorted(ip_list), 1):
+                print(f"  正在查询 ({filename}) 的第 {i}/{len(ip_list)} 个IP: {ip}")
+                country_code, chinese_name = query_ip_geolocation(ip)
+                sequence = f"{i:02d}"
+                
+                if country_code and chinese_name:
+                    result_line = f"{ip}:2096#{country_code}{chinese_name}{sequence}"
+                else:
+                    result_line = f"{ip}:2096#UNKNOWN未知{sequence}"
+                    local_error_log.append(f"IP {ip} 地理位置查询失败 (文件: {filename})")
+                
+                results.append(result_line)
+                time.sleep(1) # 避免API请求过于频繁
+            
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(results))
+            
+            print(f"结果已保存到 {filename}，共 {len(results)} 条记录")
+            return local_error_log
+
+        # --- 主程序开始 ---
+        global_error_log = []
+
+        # 处理源1
+        print("\n--- 开始处理源1 (cf.090227.xyz) ---")
+        ips1_raw = get_ips_from_source1()
+        valid_ips1 = validate_and_filter_ips(ips1_raw)
+        errors1 = process_and_save(valid_ips1, "1.txt")
+        global_error_log.extend(errors1)
+
+        # 处理源2
+        print("\n--- 开始处理源2 (ip.164746.xyz) ---")
+        ips2_raw = get_ips_from_source2()
+        valid_ips2 = validate_and_filter_ips(ips2_raw)
+        errors2 = process_and_save(valid_ips2, "2.txt")
+        global_error_log.extend(errors2)
+
+        # 合并处理，生成 all.txt
+        print("\n--- 开始合并处理，生成 all.txt ---")
+        combined_ips = valid_ips1 + valid_ips2
+        all_unique_ips = sorted(list(set(combined_ips)))
+        errors_all = process_and_save(all_unique_ips, "all.txt")
+        global_error_log.extend(errors_all)
+
+        # 写入全局错误日志
+        if global_error_log:
+            unique_errors = sorted(list(set(global_error_log)))
+            print(f"\n发现 {len(unique_errors)} 条唯一的地理位置查询错误。")
+            with open('geolocation_errors.txt', 'w', encoding='utf-8') as f:
+                f.write('\n'.join(unique_errors))
+
+        print("\n所有处理步骤完成。")
+        EOF
+    
+    # 第四步：检查脚本运行结果
+    - name: Check results
+      run: |
+        echo "--- 检查 1.txt ---"
+        if [ -f "1.txt" ]; then
+          echo "文件 '1.txt' 创建成功. 行数: $(wc -l < 1.txt)"
+          head -5 1.txt
+        else
+          echo "文件 '1.txt' 创建失败"
+        fi
+        echo "--- 检查 2.txt ---"
+        if [ -f "2.txt" ]; then
+          echo "文件 '2.txt' 创建成功. 行数: $(wc -l < 2.txt)"
+          head -5 2.txt
+        else
+          echo "文件 '2.txt' 创建失败"
+        fi
+        echo "--- 检查 all.txt ---"
+        if [ -f "all.txt" ]; then
+          echo "文件 'all.txt' 创建成功. 行数: $(wc -l < all.txt)"
+          echo "文件内容预览:"
+          head -10 all.txt
+        else
+          echo "文件 'all.txt' 创建失败"
+        fi
+        if [ -f "geolocation_errors.txt" ]; then
+          echo "--- 发现错误日志 'geolocation_errors.txt' ---"
+          cat geolocation_errors.txt
+        fi
+    
+    # 第五步：提交并推送变更到仓库
+    - name: Commit and push changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add 1.txt 2.txt all.txt
+        
+        if [ -f "geolocation_errors.txt" ]; then
+          git add geolocation_errors.txt
+        fi
+        
+        if git diff --staged --quiet; then
+          echo "文件内容无变化，无需提交。"
+        else
+          git commit -m "Update IP address lists - $(date +'%Y-%m-%d %H:%M:%S')"
+          git push
+        fi
+    
+    # 第六步：上传产物，方便下载
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ip-lists
+        path: |
+          1.txt
+          2.txt
+          all.txt
+          geolocation_errors.txt
+        if-no-files-found: ignore
+        retention-days: 30
