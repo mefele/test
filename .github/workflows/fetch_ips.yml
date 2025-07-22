@@ -24,23 +24,13 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
     
-    # 第二步：安装依赖项 (包含Selenium和浏览器驱动)
+    # 第二步：安装依赖项 (使用undetected-chromedriver)
     - name: Install dependencies and browser
       run: |
         sudo apt-get update
-        # 安装Python库
-        pip install requests beautifulsoup4 lxml selenium
-        # 安装Google Chrome浏览器
-        wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-        sudo dpkg -i google-chrome-stable_current_amd64.deb
-        sudo apt-get install -f -y # 安装缺失的依赖
-        # 安装ChromeDriver
-        CHROME_DRIVER_VERSION=$(curl -sS https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE)
-        wget -N https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/$CHROME_DRIVER_VERSION/linux64/chromedriver-linux64.zip -P ~/
-        unzip ~/chromedriver-linux64.zip -d ~/
-        rm ~/chromedriver-linux64.zip
-        sudo mv -f ~/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver
-        sudo chmod +x /usr/local/bin/chromedriver
+        sudo apt-get install -y wget unzip # 确保基础工具存在
+        # 安装Python库，包含专门的反检测驱动
+        pip install requests beautifulsoup4 lxml selenium undetected-chromedriver
 
     # 第三步：运行Python脚本采集IP并查询地理位置
     - name: Collect IPs with Geolocation
@@ -52,11 +42,10 @@ jobs:
         import socket
         import time
         import json
-        from selenium import webdriver
         from selenium.webdriver.common.by import By
         from selenium.webdriver.support.ui import WebDriverWait
         from selenium.webdriver.support import expected_conditions as EC
-        from selenium.webdriver.chrome.options import Options
+        import undetected_chromedriver as uc # 引入反检测驱动
 
         def get_chinese_country_name(code):
             """将国家代码映射到中文名称"""
@@ -151,23 +140,18 @@ jobs:
                 return []
 
         def get_ips_from_source3():
-            """从源3 (stock.hostmonit.com) 采集电信线路IP - 终极Selenium方案"""
+            """从源3 (stock.hostmonit.com) 采集电信线路IP - 使用undetected-chromedriver"""
             url = "https://stock.hostmonit.com/CloudFlareYes"
             telecom_ips = []
             
-            print("正在设置Selenium浏览器...")
-            chrome_options = Options()
-            chrome_options.add_argument("--headless")
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument("window-size=1920x1080")
-            driver = webdriver.Chrome(options=chrome_options)
-            
+            print("正在设置undetected-chromedriver浏览器...")
+            driver = None
             try:
-                print(f"Selenium正在访问源3: {url}")
+                driver = uc.Chrome(headless=True, use_subprocess=False)
+                print(f"undetected-chromedriver正在访问源3: {url}")
                 driver.get(url)
                 
-                # 优化等待策略：等待表格容器出现，并增加超时时间
+                # 等待表格容器出现，给予充足时间应对Cloudflare挑战
                 print("等待页面JavaScript加载表格数据（最长90秒）...")
                 WebDriverWait(driver, 90).until(
                     EC.presence_of_element_located((By.CLASS_NAME, "el-table__body-wrapper"))
@@ -202,16 +186,17 @@ jobs:
                     print("在源3中结构化匹配策略未找到任何'电信'IP。")
 
             except Exception as e:
-                print(f"从源3使用Selenium采集失败: {e}")
-                # 终极调试：保存截图和源码
-                print("正在保存调试文件...")
-                driver.save_screenshot('debug_screenshot.png')
-                with open('debug_page_source.html', 'w', encoding='utf-8') as f:
-                    f.write(driver.page_source)
-                print("调试文件保存完毕。")
+                print(f"从源3使用undetected-chromedriver采集失败: {e}")
+                if driver:
+                    print("正在保存调试文件...")
+                    driver.save_screenshot('debug_screenshot.png')
+                    with open('debug_page_source.html', 'w', encoding='utf-8') as f:
+                        f.write(driver.page_source)
+                    print("调试文件保存完毕。")
             finally:
-                print("关闭Selenium浏览器。")
-                driver.quit()
+                if driver:
+                    print("关闭undetected-chromedriver浏览器。")
+                    driver.quit()
                 
             return telecom_ips
 
