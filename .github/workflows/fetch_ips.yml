@@ -105,8 +105,6 @@ jobs:
             url = "https://cf.090227.xyz/"
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-                'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
             }
             try:
                 print("正在尝试从源1获取内容...")
@@ -120,10 +118,6 @@ jobs:
                 rows = soup.find_all('tr')
                 print(f"在源1中找到 {len(rows)} 个表格行，开始结构化匹配...")
                 
-                if not rows:
-                    print("错误：在源1页面中未找到任何表格行(<tr>)。")
-                    return []
-
                 for row in rows:
                     cells = row.find_all('td')
                     if len(cells) > 1:
@@ -132,12 +126,7 @@ jobs:
                         if '电信' in line_type_cell:
                             ips_found = re.findall(ip_pattern, ip_cell_text)
                             if ips_found:
-                                print(f"  成功(源1): 在线路为'{line_type_cell}'的行中找到IP: {ips_found[0]}")
                                 telecom_ips.append(ips_found[0])
-
-                if not telecom_ips:
-                    print("在源1中结构化匹配策略未找到任何'电信'IP。")
-
                 return telecom_ips
             except Exception as e:
                 print(f"从源1采集失败: {e}")
@@ -148,8 +137,6 @@ jobs:
             url = "https://ip.164746.xyz/"
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-                'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
             }
             try:
                 response = requests.get(url, headers=headers, timeout=30)
@@ -164,7 +151,7 @@ jobs:
                 return []
 
         def get_ips_from_source3():
-            """从源3 (stock.hostmonit.com) 采集电信线路IP - 使用Selenium"""
+            """从源3 (stock.hostmonit.com) 采集电信线路IP - 终极Selenium方案"""
             url = "https://stock.hostmonit.com/CloudFlareYes"
             telecom_ips = []
             
@@ -173,20 +160,26 @@ jobs:
             chrome_options.add_argument("--headless")
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("window-size=1920x1080")
             driver = webdriver.Chrome(options=chrome_options)
             
             try:
                 print(f"Selenium正在访问源3: {url}")
                 driver.get(url)
                 
-                # 等待表格主体加载完成，最长等待30秒
-                print("等待页面JavaScript加载表格数据...")
+                # 优化等待策略：等待第一行数据出现
+                print("等待页面JavaScript加载第一行数据...")
                 WebDriverWait(driver, 30).until(
-                    EC.presence_of_element_located((By.CLASS_NAME, "el-table__body"))
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "tbody .el-table__row"))
                 )
-                print("表格数据已加载。")
+                print("第一行数据已加载。")
+                
+                # 增加强制等待，确保所有JS渲染完成
+                print("额外等待5秒以确保所有数据渲染完成...")
+                time.sleep(5)
 
                 # 获取渲染后的页面源码
+                print("正在获取渲染后的页面源码...")
                 page_source = driver.page_source
                 soup = BeautifulSoup(page_source, 'lxml')
                 
@@ -210,6 +203,12 @@ jobs:
 
             except Exception as e:
                 print(f"从源3使用Selenium采集失败: {e}")
+                # 终极调试：保存截图和源码
+                print("正在保存调试文件...")
+                driver.save_screenshot('debug_screenshot.png')
+                with open('debug_page_source.html', 'w', encoding='utf-8') as f:
+                    f.write(driver.page_source)
+                print("调试文件保存完毕。")
             finally:
                 print("关闭Selenium浏览器。")
                 driver.quit()
@@ -337,6 +336,14 @@ jobs:
           git add geolocation_errors.txt
         fi
         
+        # 增加对调试文件的处理
+        if [ -f "debug_screenshot.png" ]; then
+          git add debug_screenshot.png
+        fi
+        if [ -f "debug_page_source.html" ]; then
+          git add debug_page_source.html
+        fi
+        
         if git diff --staged --quiet; then
           echo "文件内容无变化，无需提交。"
         else
@@ -348,12 +355,14 @@ jobs:
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ip-lists
+        name: ip-lists-and-debug-files
         path: |
           1.txt
           2.txt
           3.txt
           all.txt
           geolocation_errors.txt
+          debug_screenshot.png
+          debug_page_source.html
         if-no-files-found: ignore
         retention-days: 30
