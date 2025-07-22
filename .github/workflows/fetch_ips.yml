@@ -152,6 +152,49 @@ jobs:
                 print(f"从源2采集失败: {e}")
                 return []
 
+        def get_ips_from_source3():
+            """从源3 (stock.hostmonit.com) 采集电信线路IP - 已同步为优化逻辑"""
+            url = "https://stock.hostmonit.com/CloudFlareYes"
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+            try:
+                print("正在尝试从源3获取内容...")
+                response = requests.get(url, headers=headers, timeout=30)
+                response.raise_for_status()
+                soup = BeautifulSoup(response.text, 'lxml')
+                
+                telecom_ips = []
+                ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
+
+                # 使用与源1相同的优化策略
+                rows = soup.find_all('tr')
+                print(f"在源3中找到 {len(rows)} 个表格行，开始结构化匹配...")
+                
+                if not rows:
+                    print("错误：在源3页面中未找到任何表格行(<tr>)。")
+                    return []
+
+                for row in rows:
+                    cells = row.find_all('td')
+                    if len(cells) > 1:
+                        line_type_cell = cells[0].get_text().strip()
+                        ip_cell_text = cells[1].get_text().strip()
+                        
+                        if '电信' in line_type_cell:
+                            ips_found = re.findall(ip_pattern, ip_cell_text)
+                            if ips_found:
+                                print(f"  成功: 在源3线路为'{line_type_cell}'的行中找到IP: {ips_found[0]}")
+                                telecom_ips.append(ips_found[0])
+                            else:
+                                print(f"  警告: 在源3线路为'{line_type_cell}'的行中未找到格式正确的IP。单元格内容: '{ip_cell_text}'")
+
+                if not telecom_ips:
+                    print("在源3中结构化匹配策略未找到任何'电信'IP。")
+
+                return telecom_ips
+            except Exception as e:
+                print(f"从源3采集失败: {e}")
+                return []
+
         def process_and_save(ip_list, filename):
             """处理IP列表，进行地理位置查询、格式化并保存到文件"""
             if not ip_list:
@@ -201,9 +244,16 @@ jobs:
         errors2 = process_and_save(valid_ips2, "2.txt")
         global_error_log.extend(errors2)
 
+        # 处理源3
+        print("\n--- 开始处理源3 (stock.hostmonit.com) ---")
+        ips3_raw = get_ips_from_source3()
+        valid_ips3 = validate_and_filter_ips(ips3_raw)
+        errors3 = process_and_save(valid_ips3, "3.txt")
+        global_error_log.extend(errors3)
+
         # 合并处理，生成 all.txt
         print("\n--- 开始合并处理，生成 all.txt ---")
-        combined_ips = valid_ips1 + valid_ips2
+        combined_ips = valid_ips1 + valid_ips2 + valid_ips3
         all_unique_ips = sorted(list(set(combined_ips)))
         errors_all = process_and_save(all_unique_ips, "all.txt")
         global_error_log.extend(errors_all)
@@ -235,6 +285,13 @@ jobs:
         else
           echo "文件 '2.txt' 创建失败"
         fi
+        echo "--- 检查 3.txt ---"
+        if [ -f "3.txt" ]; then
+          echo "文件 '3.txt' 创建成功. 行数: $(wc -l < 3.txt)"
+          head -5 3.txt
+        else
+          echo "文件 '3.txt' 创建失败"
+        fi
         echo "--- 检查 all.txt ---"
         if [ -f "all.txt" ]; then
           echo "文件 'all.txt' 创建成功. 行数: $(wc -l < all.txt)"
@@ -253,7 +310,7 @@ jobs:
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add 1.txt 2.txt all.txt
+        git add 1.txt 2.txt 3.txt all.txt
         
         if [ -f "geolocation_errors.txt" ]; then
           git add geolocation_errors.txt
@@ -274,6 +331,7 @@ jobs:
         path: |
           1.txt
           2.txt
+          3.txt
           all.txt
           geolocation_errors.txt
         if-no-files-found: ignore
