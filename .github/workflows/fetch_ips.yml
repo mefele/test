@@ -45,40 +45,12 @@ jobs:
         def get_chinese_country_name(code):
             """将国家代码映射到中文名称"""
             country_mapping = {
-                "US": "美国", "CA": "加拿大", "CN": "中国",
-                "HK": "中国香港", "TW": "中国台湾", "JP": "日本",
-                "KR": "韩国", "SG": "新加坡", "GB": "英国",
-                "DE": "德国", "FR": "法国", "AU": "澳大利亚",
-                "NL": "荷兰", "RU": "俄罗斯", "IN": "印度",
-                "BR": "巴西", "VN": "越南", "MY": "马来西亚",
-                "TH": "泰国", "ID": "印度尼西亚",
-                "CY": "塞浦路斯", "SC": "塞舌尔", "MU": "毛里求斯",
-                "PH": "菲律宾", "IT": "意大利", "ES": "西班牙",
-                "SE": "瑞典", "NO": "挪威", "DK": "丹麦",
-                "FI": "芬兰", "CH": "瑞士", "AT": "奥地利",
-                "BE": "比利时", "PT": "葡萄牙", "IE": "爱尔兰",
-                "GR": "希腊", "PL": "波兰", "CZ": "捷克",
-                "HU": "匈牙利", "RO": "罗马尼亚", "BG": "保加利亚",
-                "HR": "克罗地亚", "SI": "斯洛文尼亚", "SK": "斯洛伐克",
-                "EE": "爱沙尼亚", "LV": "拉脱维亚", "LT": "立陶宛",
-                "LU": "卢森堡", "MT": "马耳他", "IS": "冰岛",
-                "TR": "土耳其", "UA": "乌克兰", "BY": "白俄罗斯",
-                "MD": "摩尔多瓦", "AL": "阿尔巴尼亚", "BA": "波黑",
-                "MK": "北马其顿", "ME": "黑山", "RS": "塞尔维亚",
-                "XK": "科索沃", "AR": "阿根廷", "CL": "智利",
-                "CO": "哥伦比亚", "PE": "秘鲁", "VE": "委内瑞拉",
-                "UY": "乌拉圭", "PY": "巴拉圭", "BO": "玻利维亚",
-                "EC": "厄瓜多尔", "GY": "圭亚那", "SR": "苏里南",
-                "MX": "墨西哥", "GT": "危地马拉", "BZ": "伯利兹",
-                "SV": "萨尔瓦多", "HN": "洪都拉斯", "NI": "尼加拉瓜",
-                "CR": "哥斯达黎加", "PA": "巴拿马", "CU": "古巴",
-                "JM": "牙买加", "HT": "海地", "DO": "多米尼加",
-                "PR": "波多黎各", "TT": "特立尼达和多巴哥",
-                "BB": "巴巴多斯", "GD": "格林纳达", "LC": "圣卢西亚",
-                "VC": "圣文森特和格林纳丁斯", "AG": "安提瓜和巴布达",
-                "DM": "多米尼克", "KN": "圣基茨和尼维斯",
-                "BS": "巴哈马", "BM": "百慕大", "KY": "开曼群岛",
-                "VI": "美属维尔京群岛"
+                "US": "美国", "CA": "加拿大", "CN": "中国", "HK": "中国香港", "TW": "中国台湾", 
+                "JP": "日本", "KR": "韩国", "SG": "新加坡", "GB": "英国", "DE": "德国", 
+                "FR": "法国", "AU": "澳大利亚", "NL": "荷兰", "RU": "俄罗斯", "IN": "印度", 
+                "BR": "巴西", "VN": "越南", "MY": "马来西亚", "TH": "泰国", "ID": "印度尼西亚",
+                "PH": "菲律宾", "IT": "意大利", "ES": "西班牙", "SE": "瑞典", "CH": "瑞士"
+                # 可根据需要添加更多国家
             }
             return country_mapping.get(code, code)
 
@@ -113,7 +85,7 @@ jobs:
                     continue
             return valid_ips
 
-        def get_telecom_ips_from_source1():
+        def get_ips_from_source1():
             """从源1 (cf.090227.xyz) 采集电信线路IP"""
             url = "https://cf.090227.xyz/"
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
@@ -123,14 +95,12 @@ jobs:
                 soup = BeautifulSoup(response.text, 'html.parser')
                 text_content = soup.get_text()
                 
-                # 优先查找包含 "电信" 或 "telecom" 的行中的IP
                 telecom_ips = []
                 ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
                 for line in text_content.split('\n'):
                     if '电信' in line or 'telecom' in line.lower():
                         telecom_ips.extend(re.findall(ip_pattern, line))
 
-                # 如果找不到特定关键词，则提取页面所有IP
                 if not telecom_ips:
                     print("在源1中未找到电信关键词，提取所有IP...")
                     telecom_ips = re.findall(ip_pattern, text_content)
@@ -150,79 +120,106 @@ jobs:
                 soup = BeautifulSoup(response.text, 'html.parser')
                 text_content = soup.get_text()
                 ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
-                # 提取页面所有IP，并取前10个
                 all_ips = re.findall(ip_pattern, text_content)
                 return all_ips[:10]
             except Exception as e:
                 print(f"从源2采集失败: {e}")
                 return []
 
-        # --- 主程序开始 ---
-        print("开始从源1 (cf.090227.xyz) 采集电信线路IP地址...")
-        telecom_ips = get_telecom_ips_from_source1()
-        print(f"从源1找到 {len(telecom_ips)} 个IP地址")
+        def process_and_save(ip_list, filename):
+            """处理IP列表，进行地理位置查询、格式化并保存到文件"""
+            if not ip_list:
+                print(f"IP列表为空，为 {filename} 创建空文件。")
+                with open(filename, 'w', encoding='utf-8') as f:
+                    f.write("")
+                return []
 
-        print("开始从源2 (ip.164746.xyz) 采集IP地址...")
-        new_source_ips = get_ips_from_source2()
-        print(f"从源2找到 {len(new_source_ips)} 个IP地址")
-
-        # 合并并验证所有IP
-        combined_ips = telecom_ips + new_source_ips
-        valid_ips = validate_and_filter_ips(combined_ips)
-        print(f"合并、去重和验证后，总共 {len(valid_ips)} 个有效IP地址待处理")
-        
-        if valid_ips:
+            print(f"开始处理 {len(ip_list)} 个IP并保存到 {filename}...")
             results = []
-            error_log = []
+            local_error_log = []
             
-            # 遍历IP列表，查询地理位置并格式化
-            for i, ip in enumerate(sorted(valid_ips), 1):
-                print(f"正在查询第 {i}/{len(valid_ips)} 个IP: {ip}")
+            for i, ip in enumerate(sorted(ip_list), 1):
+                print(f"  正在查询 ({filename}) 的第 {i}/{len(ip_list)} 个IP: {ip}")
                 country_code, chinese_name = query_ip_geolocation(ip)
-                sequence = f"{i:02d}" # 格式化序号为两位数
+                sequence = f"{i:02d}"
                 
                 if country_code and chinese_name:
                     result_line = f"{ip}:2096#{country_code}{chinese_name}{sequence}"
-                    results.append(result_line)
-                    print(f"  -> 结果: {result_line}")
                 else:
                     result_line = f"{ip}:2096#UNKNOWN未知{sequence}"
-                    results.append(result_line)
-                    error_log.append(f"IP {ip} 地理位置查询失败")
-                    print(f"  -> 查询失败: {result_line}")
+                    local_error_log.append(f"IP {ip} 地理位置查询失败 (文件: {filename})")
                 
+                results.append(result_line)
                 time.sleep(1) # 避免API请求过于频繁
             
-            # 将结果写入文件
-            with open('telecom_ips.txt', 'w', encoding='utf-8') as f:
+            with open(filename, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(results))
             
-            if error_log:
-                with open('geolocation_errors.txt', 'w', encoding='utf-8') as f:
-                    f.write('\n'.join(error_log))
-            
-            print(f"所有结果已保存到 telecom_ips.txt，共 {len(results)} 条记录")
-        else:
-            print("未找到任何有效IP地址")
-            # 创建一个空文件以避免后续步骤出错
-            with open('telecom_ips.txt', 'w', encoding='utf-8') as f:
-                f.write("")
+            print(f"结果已保存到 {filename}，共 {len(results)} 条记录")
+            return local_error_log
+
+        # --- 主程序开始 ---
+        global_error_log = []
+
+        # 处理源1
+        print("\n--- 开始处理源1 (cf.090227.xyz) ---")
+        ips1_raw = get_ips_from_source1()
+        valid_ips1 = validate_and_filter_ips(ips1_raw)
+        errors1 = process_and_save(valid_ips1, "1.txt")
+        global_error_log.extend(errors1)
+
+        # 处理源2
+        print("\n--- 开始处理源2 (ip.164746.xyz) ---")
+        ips2_raw = get_ips_from_source2()
+        valid_ips2 = validate_and_filter_ips(ips2_raw)
+        errors2 = process_and_save(valid_ips2, "2.txt")
+        global_error_log.extend(errors2)
+
+        # 合并处理，生成 all.txt
+        print("\n--- 开始合并处理，生成 all.txt ---")
+        combined_ips = valid_ips1 + valid_ips2
+        all_unique_ips = sorted(list(set(combined_ips)))
+        errors_all = process_and_save(all_unique_ips, "all.txt")
+        global_error_log.extend(errors_all)
+
+        # 写入全局错误日志
+        if global_error_log:
+            unique_errors = sorted(list(set(global_error_log)))
+            print(f"\n发现 {len(unique_errors)} 条唯一的地理位置查询错误。")
+            with open('geolocation_errors.txt', 'w', encoding='utf-8') as f:
+                f.write('\n'.join(unique_errors))
+
+        print("\n所有处理步骤完成。")
         EOF
     
     # 第四步：检查脚本运行结果
     - name: Check results
       run: |
-        if [ -f "telecom_ips.txt" ]; then
-          echo "文件 'telecom_ips.txt' 创建成功"
-          echo "文件大小: $(wc -l < telecom_ips.txt) 行"
-          echo "文件内容预览:"
-          head -10 telecom_ips.txt
-          if [ -f "geolocation_errors.txt" ]; then
-            echo "发现错误日志 'geolocation_errors.txt':"
-            cat geolocation_errors.txt
-          fi
+        echo "--- 检查 1.txt ---"
+        if [ -f "1.txt" ]; then
+          echo "文件 '1.txt' 创建成功. 行数: $(wc -l < 1.txt)"
+          head -5 1.txt
         else
-          echo "文件 'telecom_ips.txt' 创建失败"
+          echo "文件 '1.txt' 创建失败"
+        fi
+        echo "--- 检查 2.txt ---"
+        if [ -f "2.txt" ]; then
+          echo "文件 '2.txt' 创建成功. 行数: $(wc -l < 2.txt)"
+          head -5 2.txt
+        else
+          echo "文件 '2.txt' 创建失败"
+        fi
+        echo "--- 检查 all.txt ---"
+        if [ -f "all.txt" ]; then
+          echo "文件 'all.txt' 创建成功. 行数: $(wc -l < all.txt)"
+          echo "文件内容预览:"
+          head -10 all.txt
+        else
+          echo "文件 'all.txt' 创建失败"
+        fi
+        if [ -f "geolocation_errors.txt" ]; then
+          echo "--- 发现错误日志 'geolocation_errors.txt' ---"
+          cat geolocation_errors.txt
         fi
     
     # 第五步：提交并推送变更到仓库
@@ -230,7 +227,7 @@ jobs:
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add telecom_ips.txt
+        git add 1.txt 2.txt all.txt
         
         if [ -f "geolocation_errors.txt" ]; then
           git add geolocation_errors.txt
@@ -239,7 +236,7 @@ jobs:
         if git diff --staged --quiet; then
           echo "文件内容无变化，无需提交。"
         else
-          git commit -m "Update IP addresses with geolocation - $(date +'%Y-%m-%d %H:%M:%S')"
+          git commit -m "Update IP address lists - $(date +'%Y-%m-%d %H:%M:%S')"
           git push
         fi
     
@@ -247,9 +244,11 @@ jobs:
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ip-list-with-geolocation
+        name: ip-lists
         path: |
-          telecom_ips.txt
+          1.txt
+          2.txt
+          all.txt
           geolocation_errors.txt
         if-no-files-found: ignore
         retention-days: 30
