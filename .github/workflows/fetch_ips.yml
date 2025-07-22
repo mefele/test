@@ -28,13 +28,23 @@ jobs:
     - name: Install dependencies and FlareSolverr
       run: |
         sudo apt-get update
-        sudo apt-get install -y wget unzip # 确保基础工具存在
+        sudo apt-get install -y wget unzip jq # 确保基础工具存在
         # 安装Python库
         pip install requests beautifulsoup4 lxml
-        # 下载并设置FlareSolverr
-        echo "正在下载FlareSolverr..."
-        FLARESOLVERR_VERSION="v3.3.7" # 更新到最新的稳定版本以修复下载问题
-        wget "https://github.com/FlareSolverr/FlareSolverr/releases/download/${FLARESOLVERR_VERSION}/flaresolverr_linux_x64.zip"
+        # 动态获取最新的FlareSolverr下载链接并下载
+        echo "正在动态获取最新的FlareSolverr下载链接..."
+        DOWNLOAD_URL=$(curl -s https://api.github.com/repos/FlareSolverr/FlareSolverr/releases/latest | jq -r '.assets[] | select(.name | endswith("linux_x64.zip")) | .browser_download_url')
+        
+        if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" == "null" ]; then
+          echo "错误：无法通过API获取FlareSolverr的下载链接。将尝试使用固定的最新版本链接。"
+          # 如果API失败，使用一个已知的最新版本作为备用方案
+          FLARESOLVERR_VERSION="v3.3.7"
+          DOWNLOAD_URL="https://github.com/FlareSolverr/FlareSolverr/releases/download/${FLARESOLVERR_VERSION}/flaresolverr_linux_x64.zip"
+        fi
+        
+        echo "下载链接: $DOWNLOAD_URL"
+        wget "$DOWNLOAD_URL" -O flaresolverr_linux_x64.zip
+        
         unzip flaresolverr_linux_x64.zip
         rm flaresolverr_linux_x64.zip
         chmod +x flaresolverr
