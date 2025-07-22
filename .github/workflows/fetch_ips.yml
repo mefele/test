@@ -1,70 +1,368 @@
-name: Collect and Merge Cloudflare IPs
+# GitHub Action 的名称
+name: Collect IP Addresses with Geolocation
 
+# 工作流触发条件
 on:
   schedule:
-    - cron: '0 0,12 * * *'  # 每天 00:00 和 12:00 UTC 执行
-  workflow_dispatch:
+    # 每天UTC时间00:00和12:00执行 (对应北京时间08:00和20:00)
+    - cron: '0 0,12 * * *'
+  workflow_dispatch: # 允许手动触发
 
+# 为工作流设置权限
 permissions:
-  contents: write
+  contents: write # 允许工作流写入仓库内容
 
+# 定义一个或多个作业
 jobs:
   collect-ips:
+    # 指定运行环境
     runs-on: ubuntu-latest
-
+    
+    # 作业中的步骤
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    # 第一步：检出代码
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    # 第二步：安装依赖项 (包含Selenium和浏览器驱动)
+    - name: Install dependencies and browser
+      run: |
+        sudo apt-get update
+        # 安装Python库
+        pip install requests beautifulsoup4 lxml selenium
+        # 安装Google Chrome浏览器
+        wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+        sudo dpkg -i google-chrome-stable_current_amd64.deb
+        sudo apt-get install -f -y # 安装缺失的依赖
+        # 安装ChromeDriver
+        CHROME_DRIVER_VERSION=$(curl -sS https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE)
+        wget -N https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/$CHROME_DRIVER_VERSION/linux64/chromedriver-linux64.zip -P ~/
+        unzip ~/chromedriver-linux64.zip -d ~/
+        rm ~/chromedriver-linux64.zip
+        sudo mv -f ~/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver
+        sudo chmod +x /usr/local/bin/chromedriver
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
+    # 第三步：运行Python脚本采集IP并查询地理位置
+    - name: Collect IPs with Geolocation
+      run: |
+        python3 << 'EOF'
+        import requests
+        import re
+        from bs4 import BeautifulSoup
+        import socket
+        import time
+        import json
+        from selenium import webdriver
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.support.ui import WebDriverWait
+        from selenium.webdriver.support import expected_conditions as EC
+        from selenium.webdriver.chrome.options import Options
 
-      - name: Install dependencies
-        run: |
-          pip install requests
+        def get_chinese_country_name(code):
+            """将国家代码映射到中文名称"""
+            country_mapping = {
+                "US": "美国", "CA": "加拿大", "CN": "中国", "HK": "中国香港", "TW": "中国台湾", 
+                "JP": "日本", "KR": "韩国", "SG": "新加坡", "GB": "英国", "DE": "德国", 
+                "FR": "法国", "AU": "澳大利亚", "NL": "荷兰", "RU": "俄罗斯", "IN": "印度", 
+                "BR": "巴西", "VN": "越南", "MY": "马来西亚", "TH": "泰国", "ID": "印度尼西亚",
+                "PH": "菲律宾", "IT": "意大利", "ES": "西班牙", "SE": "瑞典", "CH": "瑞士"
+            }
+            return country_mapping.get(code, code)
 
-      - name: Fetch from Source 1 (cf.090227.xyz)
-        run: |
-          echo "Fetching from source 1..."
-          curl -s https://cf.090227.xyz/ | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' > 1.txt
-          echo "Source 1 done. IPs:"
-          cat 1.txt
+        def query_ip_geolocation(ip):
+            """使用 ipinfo.io API 查询IP的地理位置"""
+            try:
+                api_url = f"https://ipinfo.io/{ip}/json"
+                response = requests.get(api_url, timeout=10)
+                response.raise_for_status()
+                data = response.json()
+                country_code = data.get('country')
+                if country_code:
+                    return country_code, get_chinese_country_name(country_code)
+                return None, None
+            except Exception as e:
+                print(f"查询IP {ip} 地理位置失败: {e}")
+                return None, None
 
-      - name: Fetch from Source 2 (ip.164746.xyz)
-        run: |
-          echo "Fetching from source 2..."
-          curl -s https://ip.164746.xyz | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' > 2.txt
-          echo "Source 2 done. IPs:"
-          cat 2.txt
+        def validate_and_filter_ips(ips):
+            """验证IP地址格式并过滤掉私有IP"""
+            valid_ips = []
+            for ip in set(ips): # 使用set去重
+                try:
+                    socket.inet_aton(ip)
+                    octets = ip.split('.')
+                    if not (octets[0] == '10' or
+                            (octets[0] == '172' and 16 <= int(octets[1]) <= 31) or
+                            (octets[0] == '192' and octets[1] == '168') or
+                            octets[0] == '127'):
+                        valid_ips.append(ip)
+                except socket.error:
+                    continue
+            return valid_ips
 
-      - name: Fetch from Source 3 (HostMonit JSON API)
-        run: |
-          echo "Fetching from HostMonit JSON API..."
-          python3 -c "
-import requests
-url = 'https://api.hostmonit.com/get_optimization_ip?type=1'
-res = requests.get(url)
-ips = res.json().get('info', [])
-with open('3.txt', 'w') as f:
-    for ip in ips:
-        f.write(ip['ip'] + '\\n')
-"
-          echo "Source 3 done. IPs:"
-          cat 3.txt
+        def get_ips_from_source1():
+            """从源1 (cf.090227.xyz) 采集电信线路IP"""
+            url = "https://cf.090227.xyz/"
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
+            }
+            try:
+                print("正在尝试从源1获取内容...")
+                response = requests.get(url, headers=headers, timeout=30)
+                response.raise_for_status()
+                soup = BeautifulSoup(response.text, 'lxml')
+                
+                telecom_ips = []
+                ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
 
-      - name: Merge and deduplicate all IPs
-        run: |
-          echo "Merging and deduplicating..."
-          cat 1.txt 2.txt 3.txt | sort | uniq > all.txt
-          echo "All unique IPs:"
-          cat all.txt
+                rows = soup.find_all('tr')
+                print(f"在源1中找到 {len(rows)} 个表格行，开始结构化匹配...")
+                
+                for row in rows:
+                    cells = row.find_all('td')
+                    if len(cells) > 1:
+                        line_type_cell = cells[0].get_text().strip()
+                        ip_cell_text = cells[1].get_text().strip()
+                        if '电信' in line_type_cell:
+                            ips_found = re.findall(ip_pattern, ip_cell_text)
+                            if ips_found:
+                                telecom_ips.append(ips_found[0])
+                return telecom_ips
+            except Exception as e:
+                print(f"从源1采集失败: {e}")
+                return []
+        
+        def get_ips_from_source2():
+            """从源2 (ip.164746.xyz) 采集IP"""
+            url = "https://ip.164746.xyz/"
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
+            }
+            try:
+                response = requests.get(url, headers=headers, timeout=30)
+                response.raise_for_status()
+                soup = BeautifulSoup(response.text, 'html.parser')
+                text_content = soup.get_text()
+                ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
+                all_ips = re.findall(ip_pattern, text_content)
+                return all_ips[:10]
+            except Exception as e:
+                print(f"从源2采集失败: {e}")
+                return []
 
-      - name: Commit and push if changed
-        run: |
-          git config --global user.name 'github-actions'
-          git config --global user.email 'github-actions@github.com'
-          git add 1.txt 2.txt 3.txt all.txt
-          git diff --cached --quiet || git commit -m "Update IP list at $(date -u '+%Y-%m-%d %H:%M:%S')"
-          git push || echo "Nothing to push"
+        def get_ips_from_source3():
+            """从源3 (stock.hostmonit.com) 采集电信线路IP - 终极Selenium方案"""
+            url = "https://stock.hostmonit.com/CloudFlareYes"
+            telecom_ips = []
+            
+            print("正在设置Selenium浏览器...")
+            chrome_options = Options()
+            chrome_options.add_argument("--headless")
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("window-size=1920x1080")
+            driver = webdriver.Chrome(options=chrome_options)
+            
+            try:
+                print(f"Selenium正在访问源3: {url}")
+                driver.get(url)
+                
+                # 优化等待策略：等待第一行数据出现
+                print("等待页面JavaScript加载第一行数据...")
+                WebDriverWait(driver, 30).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "tbody .el-table__row"))
+                )
+                print("第一行数据已加载。")
+                
+                # 增加强制等待，确保所有JS渲染完成
+                print("额外等待5秒以确保所有数据渲染完成...")
+                time.sleep(5)
+
+                # 获取渲染后的页面源码
+                print("正在获取渲染后的页面源码...")
+                page_source = driver.page_source
+                soup = BeautifulSoup(page_source, 'lxml')
+                
+                ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
+                rows = soup.find_all('tr', class_='el-table__row')
+                print(f"在源3中找到 {len(rows)} 个表格行，开始结构化匹配...")
+
+                for row in rows:
+                    cells = row.find_all('td')
+                    if len(cells) > 1:
+                        line_type_span = cells[0].find('span')
+                        if line_type_span and '电信' in line_type_span.get_text(strip=True):
+                            ip_cell_text = cells[1].get_text(strip=True)
+                            ips_found = re.findall(ip_pattern, ip_cell_text)
+                            if ips_found:
+                                print(f"  成功(源3): 在线路为'电信'的行中找到IP: {ips_found[0]}")
+                                telecom_ips.append(ips_found[0])
+
+                if not telecom_ips:
+                    print("在源3中结构化匹配策略未找到任何'电信'IP。")
+
+            except Exception as e:
+                print(f"从源3使用Selenium采集失败: {e}")
+                # 终极调试：保存截图和源码
+                print("正在保存调试文件...")
+                driver.save_screenshot('debug_screenshot.png')
+                with open('debug_page_source.html', 'w', encoding='utf-8') as f:
+                    f.write(driver.page_source)
+                print("调试文件保存完毕。")
+            finally:
+                print("关闭Selenium浏览器。")
+                driver.quit()
+                
+            return telecom_ips
+
+        def process_and_save(ip_list, filename):
+            """处理IP列表，进行地理位置查询、格式化并保存到文件"""
+            if not ip_list:
+                print(f"IP列表为空，为 {filename} 创建空文件。")
+                with open(filename, 'w', encoding='utf-8') as f:
+                    f.write("")
+                return []
+
+            print(f"开始处理 {len(ip_list)} 个IP并保存到 {filename}...")
+            results = []
+            local_error_log = []
+            
+            for i, ip in enumerate(sorted(ip_list), 1):
+                print(f"  正在查询 ({filename}) 的第 {i}/{len(ip_list)} 个IP: {ip}")
+                country_code, chinese_name = query_ip_geolocation(ip)
+                sequence = f"{i:02d}"
+                
+                if country_code and chinese_name:
+                    result_line = f"{ip}:2096#{country_code}{chinese_name}{sequence}"
+                else:
+                    result_line = f"{ip}:2096#UNKNOWN未知{sequence}"
+                    local_error_log.append(f"IP {ip} 地理位置查询失败 (文件: {filename})")
+                
+                results.append(result_line)
+                time.sleep(1) # 避免API请求过于频繁
+            
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(results))
+            
+            print(f"结果已保存到 {filename}，共 {len(results)} 条记录")
+            return local_error_log
+
+        # --- 主程序开始 ---
+        global_error_log = []
+
+        # 处理源1
+        print("\n--- 开始处理源1 (cf.090227.xyz) ---")
+        ips1_raw = get_ips_from_source1()
+        valid_ips1 = validate_and_filter_ips(ips1_raw)
+        errors1 = process_and_save(valid_ips1, "1.txt")
+        global_error_log.extend(errors1)
+
+        # 处理源2
+        print("\n--- 开始处理源2 (ip.164746.xyz) ---")
+        ips2_raw = get_ips_from_source2()
+        valid_ips2 = validate_and_filter_ips(ips2_raw)
+        errors2 = process_and_save(valid_ips2, "2.txt")
+        global_error_log.extend(errors2)
+
+        # 处理源3
+        print("\n--- 开始处理源3 (stock.hostmonit.com) ---")
+        ips3_raw = get_ips_from_source3()
+        valid_ips3 = validate_and_filter_ips(ips3_raw)
+        errors3 = process_and_save(valid_ips3, "3.txt")
+        global_error_log.extend(errors3)
+
+        # 合并处理，生成 all.txt
+        print("\n--- 开始合并处理，生成 all.txt ---")
+        combined_ips = valid_ips1 + valid_ips2 + valid_ips3
+        all_unique_ips = sorted(list(set(combined_ips)))
+        errors_all = process_and_save(all_unique_ips, "all.txt")
+        global_error_log.extend(errors_all)
+
+        # 写入全局错误日志
+        if global_error_log:
+            unique_errors = sorted(list(set(global_error_log)))
+            print(f"\n发现 {len(unique_errors)} 条唯一的地理位置查询错误。")
+            with open('geolocation_errors.txt', 'w', encoding='utf-8') as f:
+                f.write('\n'.join(unique_errors))
+
+        print("\n所有处理步骤完成。")
+        EOF
+    
+    # 第四步：检查脚本运行结果
+    - name: Check results
+      run: |
+        echo "--- 检查 1.txt ---"
+        if [ -f "1.txt" ]; then
+          echo "文件 '1.txt' 创建成功. 行数: $(wc -l < 1.txt)"
+          head -5 1.txt
+        else
+          echo "文件 '1.txt' 创建失败"
+        fi
+        echo "--- 检查 2.txt ---"
+        if [ -f "2.txt" ]; then
+          echo "文件 '2.txt' 创建成功. 行数: $(wc -l < 2.txt)"
+          head -5 2.txt
+        else
+          echo "文件 '2.txt' 创建失败"
+        fi
+        echo "--- 检查 3.txt ---"
+        if [ -f "3.txt" ]; then
+          echo "文件 '3.txt' 创建成功. 行数: $(wc -l < 3.txt)"
+          head -5 3.txt
+        else
+          echo "文件 '3.txt' 创建失败"
+        fi
+        echo "--- 检查 all.txt ---"
+        if [ -f "all.txt" ]; then
+          echo "文件 'all.txt' 创建成功. 行数: $(wc -l < all.txt)"
+          echo "文件内容预览:"
+          head -10 all.txt
+        else
+          echo "文件 'all.txt' 创建失败"
+        fi
+        if [ -f "geolocation_errors.txt" ]; then
+          echo "--- 发现错误日志 'geolocation_errors.txt' ---"
+          cat geolocation_errors.txt
+        fi
+    
+    # 第五步：提交并推送变更到仓库
+    - name: Commit and push changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add 1.txt 2.txt 3.txt all.txt
+        
+        if [ -f "geolocation_errors.txt" ]; then
+          git add geolocation_errors.txt
+        fi
+        
+        # 增加对调试文件的处理
+        if [ -f "debug_screenshot.png" ]; then
+          git add debug_screenshot.png
+        fi
+        if [ -f "debug_page_source.html" ]; then
+          git add debug_page_source.html
+        fi
+        
+        if git diff --staged --quiet; then
+          echo "文件内容无变化，无需提交。"
+        else
+          git commit -m "Update IP address lists - $(date +'%Y-%m-%d %H:%M:%S')"
+          git push
+        fi
+    
+    # 第六步：上传产物，方便下载
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ip-lists-and-debug-files
+        path: |
+          1.txt
+          2.txt
+          3.txt
+          all.txt
+          geolocation_errors.txt
+          debug_screenshot.png
+          debug_page_source.html
+        if-no-files-found: ignore
+        retention-days: 30
