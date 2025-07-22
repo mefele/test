@@ -24,13 +24,24 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
     
-    # 第二步：安装依赖项
-    - name: Install dependencies
+    # 第二步：安装依赖项 (包含Selenium和浏览器驱动)
+    - name: Install dependencies and browser
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq dnsutils
-        pip install requests beautifulsoup4 lxml
-    
+        # 安装Python库
+        pip install requests beautifulsoup4 lxml selenium
+        # 安装Google Chrome浏览器
+        wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+        sudo dpkg -i google-chrome-stable_current_amd64.deb
+        sudo apt-get install -f -y # 安装缺失的依赖
+        # 安装ChromeDriver
+        CHROME_DRIVER_VERSION=$(curl -sS https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE)
+        wget -N https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/$CHROME_DRIVER_VERSION/linux64/chromedriver-linux64.zip -P ~/
+        unzip ~/chromedriver-linux64.zip -d ~/
+        rm ~/chromedriver-linux64.zip
+        sudo mv -f ~/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver
+        sudo chmod +x /usr/local/bin/chromedriver
+
     # 第三步：运行Python脚本采集IP并查询地理位置
     - name: Collect IPs with Geolocation
       run: |
@@ -41,6 +52,11 @@ jobs:
         import socket
         import time
         import json
+        from selenium import webdriver
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.support.ui import WebDriverWait
+        from selenium.webdriver.support import expected_conditions as EC
+        from selenium.webdriver.chrome.options import Options
 
         def get_chinese_country_name(code):
             """将国家代码映射到中文名称"""
@@ -50,7 +66,6 @@ jobs:
                 "FR": "法国", "AU": "澳大利亚", "NL": "荷兰", "RU": "俄罗斯", "IN": "印度", 
                 "BR": "巴西", "VN": "越南", "MY": "马来西亚", "TH": "泰国", "ID": "印度尼西亚",
                 "PH": "菲律宾", "IT": "意大利", "ES": "西班牙", "SE": "瑞典", "CH": "瑞士"
-                # 可根据需要添加更多国家
             }
             return country_mapping.get(code, code)
 
@@ -149,35 +164,35 @@ jobs:
                 return []
 
         def get_ips_from_source3():
-            """从源3 (stock.hostmonit.com) 采集电信线路IP - 增加Referer"""
+            """从源3 (stock.hostmonit.com) 采集电信线路IP - 使用Selenium"""
             url = "https://stock.hostmonit.com/CloudFlareYes"
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-                'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                'Referer': 'https://stock.hostmonit.com/', # 增加Referer头
-                'Upgrade-Insecure-Requests': '1',
-            }
+            telecom_ips = []
+            
+            print("正在设置Selenium浏览器...")
+            chrome_options = Options()
+            chrome_options.add_argument("--headless")
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-dev-shm-usage")
+            driver = webdriver.Chrome(options=chrome_options)
+            
             try:
-                print("正在尝试从源3获取内容...")
-                response = requests.get(url, headers=headers, timeout=30)
-                response.raise_for_status()
+                print(f"Selenium正在访问源3: {url}")
+                driver.get(url)
                 
-                print("成功获取源3响应。")
+                # 等待表格主体加载完成，最长等待30秒
+                print("等待页面JavaScript加载表格数据...")
+                WebDriverWait(driver, 30).until(
+                    EC.presence_of_element_located((By.CLASS_NAME, "el-table__body"))
+                )
+                print("表格数据已加载。")
 
-                soup = BeautifulSoup(response.text, 'lxml')
+                # 获取渲染后的页面源码
+                page_source = driver.page_source
+                soup = BeautifulSoup(page_source, 'lxml')
                 
-                telecom_ips = []
                 ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
-
-                rows = soup.find_all('tr')
+                rows = soup.find_all('tr', class_='el-table__row')
                 print(f"在源3中找到 {len(rows)} 个表格行，开始结构化匹配...")
-                
-                if not rows:
-                    print("错误：在源3页面中未找到任何表格行(<tr>)。")
-                    return []
 
                 for row in rows:
                     cells = row.find_all('td')
@@ -193,10 +208,13 @@ jobs:
                 if not telecom_ips:
                     print("在源3中结构化匹配策略未找到任何'电信'IP。")
 
-                return telecom_ips
             except Exception as e:
-                print(f"从源3采集失败: {e}")
-                return []
+                print(f"从源3使用Selenium采集失败: {e}")
+            finally:
+                print("关闭Selenium浏览器。")
+                driver.quit()
+                
+            return telecom_ips
 
         def process_and_save(ip_list, filename):
             """处理IP列表，进行地理位置查询、格式化并保存到文件"""
