@@ -149,7 +149,7 @@ jobs:
                 return []
 
         def get_ips_from_source3():
-            """从源3 (stock.hostmonit.com) 采集电信线路IP - 增强Headers"""
+            """从源3 (stock.hostmonit.com) 采集电信线路IP - 增加Referer"""
             url = "https://stock.hostmonit.com/CloudFlareYes"
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
@@ -157,6 +157,7 @@ jobs:
                 'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7',
                 'Accept-Encoding': 'gzip, deflate, br',
                 'Connection': 'keep-alive',
+                'Referer': 'https://stock.hostmonit.com/', # 增加Referer头
                 'Upgrade-Insecure-Requests': '1',
             }
             try:
