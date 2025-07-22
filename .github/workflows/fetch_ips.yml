@@ -1,29 +1,38 @@
-name: Collect Telecom IP Addresses with Geolocation
+# GitHub Action 的名称
+name: Collect IP Addresses with Geolocation
 
+# 工作流触发条件
 on:
   schedule:
-    # 每天UTC时间00:00执行 (北京时间08:00)
-    - cron: '0 0 * * *'
+    # 每天UTC时间00:00和12:00执行 (对应北京时间08:00和20:00)
+    - cron: '0 0,12 * * *'
   workflow_dispatch: # 允许手动触发
 
+# 为工作流设置权限
 permissions:
-  contents: write # 允许工作流写入仓库
+  contents: write # 允许工作流写入仓库内容
 
+# 定义一个或多个作业
 jobs:
-  collect-telecom-ips:
+  collect-ips:
+    # 指定运行环境
     runs-on: ubuntu-latest
     
+    # 作业中的步骤
     steps:
+    # 第一步：检出代码
     - name: Checkout repository
       uses: actions/checkout@v4
     
+    # 第二步：安装依赖项
     - name: Install dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y jq dnsutils
         pip install requests beautifulsoup4 lxml
     
-    - name: Collect Telecom IPs with Geolocation
+    # 第三步：运行Python脚本采集IP并查询地理位置
+    - name: Collect IPs with Geolocation
       run: |
         python3 << 'EOF'
         import requests
@@ -32,8 +41,7 @@ jobs:
         import socket
         import time
         import json
-        import subprocess
-        
+
         def get_chinese_country_name(code):
             """将国家代码映射到中文名称"""
             country_mapping = {
@@ -70,206 +78,178 @@ jobs:
                 "VC": "圣文森特和格林纳丁斯", "AG": "安提瓜和巴布达",
                 "DM": "多米尼克", "KN": "圣基茨和尼维斯",
                 "BS": "巴哈马", "BM": "百慕大", "KY": "开曼群岛",
-                "VI": "美属维尔京群岛", "PR": "波多黎各"
+                "VI": "美属维尔京群岛"
             }
             return country_mapping.get(code, code)
-        
+
         def query_ip_geolocation(ip):
-            """查询IP地理位置"""
+            """使用 ipinfo.io API 查询IP的地理位置"""
             try:
                 api_url = f"https://ipinfo.io/{ip}/json"
                 response = requests.get(api_url, timeout=10)
                 response.raise_for_status()
-                
                 data = response.json()
                 country_code = data.get('country')
-                
                 if country_code:
-                    chinese_name = get_chinese_country_name(country_code)
-                    return country_code, chinese_name
-                else:
-                    return None, None
-                    
+                    return country_code, get_chinese_country_name(country_code)
+                return None, None
             except Exception as e:
                 print(f"查询IP {ip} 地理位置失败: {e}")
                 return None, None
-        
-        def get_telecom_ips():
-            """从指定网站采集电信线路IP地址"""
+
+        def validate_and_filter_ips(ips):
+            """验证IP地址格式并过滤掉私有IP"""
+            valid_ips = []
+            for ip in set(ips): # 使用set去重
+                try:
+                    socket.inet_aton(ip)
+                    octets = ip.split('.')
+                    if not (octets[0] == '10' or
+                            (octets[0] == '172' and 16 <= int(octets[1]) <= 31) or
+                            (octets[0] == '192' and octets[1] == '168') or
+                            octets[0] == '127'):
+                        valid_ips.append(ip)
+                except socket.error:
+                    continue
+            return valid_ips
+
+        def get_telecom_ips_from_source1():
+            """从源1 (cf.090227.xyz) 采集电信线路IP"""
             url = "https://cf.090227.xyz/"
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
-            
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
             try:
                 response = requests.get(url, headers=headers, timeout=30)
                 response.raise_for_status()
-                
                 soup = BeautifulSoup(response.text, 'html.parser')
-                
-                # 查找包含电信线路的IP地址
-                telecom_ips = []
-                
-                # 方法1: 查找包含"电信"或"telecom"关键词的内容
                 text_content = soup.get_text()
-                lines = text_content.split('\n')
                 
-                for line in lines:
+                # 优先查找包含 "电信" 或 "telecom" 的行中的IP
+                telecom_ips = []
+                ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
+                for line in text_content.split('\n'):
                     if '电信' in line or 'telecom' in line.lower():
-                        # 提取IP地址
-                        ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
-                        ips = re.findall(ip_pattern, line)
-                        telecom_ips.extend(ips)
-                
-                # 方法2: 查找表格或列表中的IP地址
-                tables = soup.find_all('table')
-                for table in tables:
-                    rows = table.find_all('tr')
-                    for row in rows:
-                        cells = row.find_all(['td', 'th'])
-                        row_text = ' '.join([cell.get_text() for cell in cells])
-                        if '电信' in row_text or 'telecom' in row_text.lower():
-                            ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
-                            ips = re.findall(ip_pattern, row_text)
-                            telecom_ips.extend(ips)
-                
-                # 方法3: 查找特定的div或span元素
-                divs = soup.find_all(['div', 'span', 'p'])
-                for div in divs:
-                    if div.text and ('电信' in div.text or 'telecom' in div.text.lower()):
-                        ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
-                        ips = re.findall(ip_pattern, div.text)
-                        telecom_ips.extend(ips)
-                
-                # 如果没有找到电信关键词，尝试直接提取所有IP地址
+                        telecom_ips.extend(re.findall(ip_pattern, line))
+
+                # 如果找不到特定关键词，则提取页面所有IP
                 if not telecom_ips:
-                    print("未找到电信关键词，尝试提取所有IP地址...")
-                    ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
-                    all_ips = re.findall(ip_pattern, text_content)
-                    telecom_ips.extend(all_ips)
-                
-                # 去重和验证IP地址
-                valid_ips = []
-                for ip in set(telecom_ips):
-                    try:
-                        socket.inet_aton(ip)
-                        # 过滤掉私有IP地址
-                        octets = ip.split('.')
-                        if not (octets[0] == '10' or 
-                               (octets[0] == '172' and 16 <= int(octets[1]) <= 31) or
-                               (octets[0] == '192' and octets[1] == '168') or
-                               octets[0] == '127'):
-                            valid_ips.append(ip)
-                    except socket.error:
-                        continue
-                
-                return valid_ips
-                
-            except requests.exceptions.RequestException as e:
-                print(f"请求错误: {e}")
-                return []
+                    print("在源1中未找到电信关键词，提取所有IP...")
+                    telecom_ips = re.findall(ip_pattern, text_content)
+
+                return telecom_ips
             except Exception as e:
-                print(f"处理错误: {e}")
+                print(f"从源1采集失败: {e}")
                 return []
         
-        # 采集IP地址
-        print("开始采集电信线路IP地址...")
-        telecom_ips = get_telecom_ips()
+        def get_ips_from_source2():
+            """从源2 (ip.164746.xyz) 采集IP"""
+            url = "https://ip.164746.xyz/"
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+            try:
+                response = requests.get(url, headers=headers, timeout=30)
+                response.raise_for_status()
+                soup = BeautifulSoup(response.text, 'html.parser')
+                text_content = soup.get_text()
+                ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
+                # 提取页面所有IP，并取前10个
+                all_ips = re.findall(ip_pattern, text_content)
+                return all_ips[:10]
+            except Exception as e:
+                print(f"从源2采集失败: {e}")
+                return []
+
+        # --- 主程序开始 ---
+        print("开始从源1 (cf.090227.xyz) 采集电信线路IP地址...")
+        telecom_ips = get_telecom_ips_from_source1()
+        print(f"从源1找到 {len(telecom_ips)} 个IP地址")
+
+        print("开始从源2 (ip.164746.xyz) 采集IP地址...")
+        new_source_ips = get_ips_from_source2()
+        print(f"从源2找到 {len(new_source_ips)} 个IP地址")
+
+        # 合并并验证所有IP
+        combined_ips = telecom_ips + new_source_ips
+        valid_ips = validate_and_filter_ips(combined_ips)
+        print(f"合并、去重和验证后，总共 {len(valid_ips)} 个有效IP地址待处理")
         
-        if telecom_ips:
-            print(f"找到 {len(telecom_ips)} 个电信IP地址")
-            
-            # 查询地理位置并格式化输出
+        if valid_ips:
             results = []
             error_log = []
             
-            for i, ip in enumerate(sorted(telecom_ips), 1):
-                print(f"正在查询第 {i} 个IP: {ip}")
-                
+            # 遍历IP列表，查询地理位置并格式化
+            for i, ip in enumerate(sorted(valid_ips), 1):
+                print(f"正在查询第 {i}/{len(valid_ips)} 个IP: {ip}")
                 country_code, chinese_name = query_ip_geolocation(ip)
+                sequence = f"{i:02d}" # 格式化序号为两位数
                 
                 if country_code and chinese_name:
-                    # 格式化序号，确保两位数
-                    sequence = f"{i:02d}"
                     result_line = f"{ip}:2096#{country_code}{chinese_name}{sequence}"
                     results.append(result_line)
-                    print(f"  结果: {result_line}")
+                    print(f"  -> 结果: {result_line}")
                 else:
-                    # 查询失败的情况
-                    sequence = f"{i:02d}"
                     result_line = f"{ip}:2096#UNKNOWN未知{sequence}"
                     results.append(result_line)
                     error_log.append(f"IP {ip} 地理位置查询失败")
-                    print(f"  查询失败: {result_line}")
+                    print(f"  -> 查询失败: {result_line}")
                 
-                # 避免API限制，延时1秒
-                time.sleep(1)
+                time.sleep(1) # 避免API请求过于频繁
             
-            # 写入结果文件
+            # 将结果写入文件
             with open('telecom_ips.txt', 'w', encoding='utf-8') as f:
-                for result in results:
-                    f.write(result + '\n')
+                f.write('\n'.join(results))
             
-            # 写入错误日志
             if error_log:
                 with open('geolocation_errors.txt', 'w', encoding='utf-8') as f:
-                    for error in error_log:
-                        f.write(error + '\n')
+                    f.write('\n'.join(error_log))
             
-            print(f"结果已保存到 telecom_ips.txt，共 {len(results)} 条记录")
-            
-            # 显示前5个结果
-            print("前5个结果:")
-            for result in results[:5]:
-                print(f"  {result}")
-                
+            print(f"所有结果已保存到 telecom_ips.txt，共 {len(results)} 条记录")
         else:
-            print("未找到电信IP地址")
-            # 创建空文件
+            print("未找到任何有效IP地址")
+            # 创建一个空文件以避免后续步骤出错
             with open('telecom_ips.txt', 'w', encoding='utf-8') as f:
                 f.write("")
-        
         EOF
     
+    # 第四步：检查脚本运行结果
     - name: Check results
       run: |
         if [ -f "telecom_ips.txt" ]; then
-          echo "文件创建成功"
+          echo "文件 'telecom_ips.txt' 创建成功"
           echo "文件大小: $(wc -l < telecom_ips.txt) 行"
           echo "文件内容预览:"
           head -10 telecom_ips.txt
           if [ -f "geolocation_errors.txt" ]; then
-            echo "错误日志:"
+            echo "发现错误日志 'geolocation_errors.txt':"
             cat geolocation_errors.txt
           fi
         else
-          echo "文件创建失败"
+          echo "文件 'telecom_ips.txt' 创建失败"
         fi
     
+    # 第五步：提交并推送变更到仓库
     - name: Commit and push changes
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
         git add telecom_ips.txt
         
-        # 如果有错误日志文件，也提交
         if [ -f "geolocation_errors.txt" ]; then
           git add geolocation_errors.txt
         fi
         
-        # 检查是否有变更
         if git diff --staged --quiet; then
-          echo "没有新的IP地址更新"
+          echo "文件内容无变化，无需提交。"
         else
-          git commit -m "Update telecom IP addresses with geolocation - $(date +'%Y-%m-%d %H:%M:%S')"
+          git commit -m "Update IP addresses with geolocation - $(date +'%Y-%m-%d %H:%M:%S')"
           git push
         fi
     
+    # 第六步：上传产物，方便下载
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: telecom-ips-with-geolocation
+        name: ip-list-with-geolocation
         path: |
           telecom_ips.txt
           geolocation_errors.txt
+        if-no-files-found: ignore
         retention-days: 30
