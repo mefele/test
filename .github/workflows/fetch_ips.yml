@@ -86,51 +86,48 @@ jobs:
             return valid_ips
 
         def get_ips_from_source1():
-            """从源1 (cf.090227.xyz) 采集电信线路IP"""
+            """从源1 (cf.090227.xyz) 采集电信线路IP - 最终优化逻辑"""
             url = "https://cf.090227.xyz/"
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
             try:
                 print("正在尝试从源1获取内容...")
                 response = requests.get(url, headers=headers, timeout=30)
                 response.raise_for_status()
-                
-                # --- 新增调试代码 ---
-                print("成功获取响应。响应文本前500个字符如下:")
-                print(response.text[:500])
-                print("--- 调试文本结束 ---")
-                # --- 调试代码结束 ---
-
-                soup = BeautifulSoup(response.text, 'lxml') # 改用 lxml 解析器
+                soup = BeautifulSoup(response.text, 'lxml')
                 
                 telecom_ips = []
                 ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
 
-                # 优先策略：查找表格中的行
+                # 最终优化策略：遍历表格的每一行，并检查特定单元格
                 rows = soup.find_all('tr')
-                if rows:
-                    print("在源1中找到表格，正在分析表格行...")
-                    for row in rows:
-                        row_text = row.get_text()
-                        if '电信' in row_text or 'telecom' in row_text.lower():
-                            ips_in_row = re.findall(ip_pattern, row_text)
-                            if ips_in_row:
-                                telecom_ips.extend(ips_in_row)
-                                print(f"  在包含'电信'的行中找到IP: {ips_in_row}")
+                print(f"在源1中找到 {len(rows)} 个表格行，开始结构化匹配...")
                 
-                # 如果表格策略失败或未找到IP，回退到通用的文本块分析
-                if not telecom_ips:
-                    print("表格策略未找到IP或未找到表格，回退到通用文本分析...")
-                    text_content = soup.get_text()
-                    for line in text_content.split('\n'):
-                        if '电信' in line or 'telecom' in line.lower():
-                            ips_in_line = re.findall(ip_pattern, line)
-                            if ips_in_line:
-                                telecom_ips.extend(ips_in_line)
-                                print(f"  在包含'电信'的文本行中找到IP: {ips_in_line}")
+                if not rows:
+                    print("错误：在页面中未找到任何表格行(<tr>)。")
+                    return []
 
-                # 最终回退：如果还是没有，就采集所有IP作为备用
+                for row in rows:
+                    # 获取行内所有单元格
+                    cells = row.find_all('td')
+                    
+                    # 确保是包含数据的行（根据截图，至少有2个数据单元格）
+                    if len(cells) > 1:
+                        line_type_cell = cells[0].get_text().strip()
+                        ip_cell_text = cells[1].get_text().strip()
+                        
+                        # 检查第一个单元格是否为"电信"
+                        if '电信' in line_type_cell:
+                            # 从第二个单元格提取IP
+                            ips_found = re.findall(ip_pattern, ip_cell_text)
+                            if ips_found:
+                                print(f"  成功: 在线路为'{line_type_cell}'的行中找到IP: {ips_found[0]}")
+                                telecom_ips.append(ips_found[0])
+                            else:
+                                print(f"  警告: 线路为'{line_type_cell}'的行中未找到格式正确的IP。单元格内容: '{ip_cell_text}'")
+
+                # 如果上述策略仍然失败，执行最终的回退方案
                 if not telecom_ips:
-                    print("在源1中未找到电信关键词关联的IP，将提取所有IP作为备用...")
+                    print("结构化匹配策略未找到任何'电信'IP。将回退到提取页面所有IP的方案...")
                     text_content = soup.get_text()
                     telecom_ips = re.findall(ip_pattern, text_content)
 
