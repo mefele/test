@@ -24,25 +24,23 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
     
-    # 第二步：安装依赖项 (包含Selenium和浏览器驱动)
-    - name: Install dependencies and browser
-      run: |
-        sudo apt-get update
-        # 安装Python库
-        pip install requests beautifulsoup4 lxml selenium
-        # 安装Google Chrome浏览器
-        wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-        sudo dpkg -i google-chrome-stable_current_amd64.deb
-        sudo apt-get install -f -y # 安装缺失的依赖
-        # 安装ChromeDriver
-        CHROME_DRIVER_VERSION=$(curl -sS https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE)
-        wget -N https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/$CHROME_DRIVER_VERSION/linux64/chromedriver-linux64.zip -P ~/
-        unzip ~/chromedriver-linux64.zip -d ~/
-        rm ~/chromedriver-linux64.zip
-        sudo mv -f ~/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver
-        sudo chmod +x /usr/local/bin/chromedriver
+    # 第二步：设置 Python 环境
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11' # 可以指定一个明确的Python版本
 
-    # 第三步：运行Python脚本采集IP并查询地理位置
+    # 第三步：安装 Python 依赖库
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests beautifulsoup4 lxml selenium
+
+    # 第四步：使用标准Action安装Chrome浏览器和驱动
+    - name: Set up Chrome
+      uses: browser-actions/setup-chrome@v1
+
+    # 第五步：运行Python脚本采集IP并查询地理位置
     - name: Collect IPs with Geolocation
       run: |
         python3 << 'EOF'
@@ -57,6 +55,7 @@ jobs:
         from selenium.webdriver.support.ui import WebDriverWait
         from selenium.webdriver.support import expected_conditions as EC
         from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.chrome.service import Service
 
         def get_chinese_country_name(code):
             """将国家代码映射到中文名称"""
@@ -161,36 +160,32 @@ jobs:
             chrome_options.add_argument("--no-sandbox")
             chrome_options.add_argument("--disable-dev-shm-usage")
             chrome_options.add_argument("window-size=1920x1080")
+            
+            # browser-actions/setup-chrome 会自动处理好driver路径
             driver = webdriver.Chrome(options=chrome_options)
             
             try:
                 print(f"Selenium正在访问源3: {url}")
                 driver.get(url)
                 
-                # 等待策略：等待表格内容（任何一个tbody下的tr）加载出来
                 print("等待页面JavaScript加载表格数据...")
                 WebDriverWait(driver, 30).until(
                     EC.presence_of_element_located((By.CSS_SELECTOR, "tbody tr"))
                 )
                 print("表格数据已加载。")
                 
-                # 额外等待，确保动态内容完全渲染
                 print("额外等待3秒以确保所有数据渲染完成...")
                 time.sleep(3)
 
-                # 获取渲染后的页面源码
-                print("正在获取渲染后的页面源码...")
                 page_source = driver.page_source
                 soup = BeautifulSoup(page_source, 'lxml')
                 
                 ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
-                # 选择tbody下的所有tr标签
                 rows = soup.select('tbody tr')
                 print(f"在源3中找到 {len(rows)} 个表格行，开始根据新结构进行匹配...")
 
                 for row in rows:
                     cells = row.find_all('td')
-                    # 根据截图，需要检查第2列(推荐)和第3列(优选IP)
                     if len(cells) > 2:
                         line_type = cells[1].get_text(strip=True)
                         ip_cell_text = cells[2].get_text(strip=True)
@@ -206,12 +201,10 @@ jobs:
 
             except Exception as e:
                 print(f"从源3使用Selenium采集失败: {e}")
-                # 终极调试：保存截图和源码
-                print("正在保存调试文件...")
                 driver.save_screenshot('debug_screenshot.png')
                 with open('debug_page_source.html', 'w', encoding='utf-8') as f:
                     f.write(driver.page_source)
-                print("调试文件保存完毕。")
+                print("调试文件已保存。")
             finally:
                 print("关闭Selenium浏览器。")
                 driver.quit()
@@ -242,7 +235,7 @@ jobs:
                     local_error_log.append(f"IP {ip} 地理位置查询失败 (文件: {filename})")
                 
                 results.append(result_line)
-                time.sleep(1) # 避免API请求过于频繁
+                time.sleep(1)
             
             with open(filename, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(results))
@@ -253,35 +246,30 @@ jobs:
         # --- 主程序开始 ---
         global_error_log = []
 
-        # 处理源1
         print("\n--- 开始处理源1 (cf.090227.xyz) ---")
         ips1_raw = get_ips_from_source1()
         valid_ips1 = validate_and_filter_ips(ips1_raw)
         errors1 = process_and_save(valid_ips1, "1.txt")
         global_error_log.extend(errors1)
 
-        # 处理源2
         print("\n--- 开始处理源2 (ip.164746.xyz) ---")
         ips2_raw = get_ips_from_source2()
         valid_ips2 = validate_and_filter_ips(ips2_raw)
         errors2 = process_and_save(valid_ips2, "2.txt")
         global_error_log.extend(errors2)
 
-        # 处理源3
         print("\n--- 开始处理源3 (api.uouin.com/cloudflare.html) ---")
         ips3_raw = get_ips_from_source3()
         valid_ips3 = validate_and_filter_ips(ips3_raw)
         errors3 = process_and_save(valid_ips3, "3.txt")
         global_error_log.extend(errors3)
 
-        # 合并处理，生成 all.txt (此步骤会自动去重)
         print("\n--- 开始合并处理，生成 all.txt ---")
         combined_ips = valid_ips1 + valid_ips2 + valid_ips3
         all_unique_ips = sorted(list(set(combined_ips)))
         errors_all = process_and_save(all_unique_ips, "all.txt")
         global_error_log.extend(errors_all)
 
-        # 写入全局错误日志
         if global_error_log:
             unique_errors = sorted(list(set(global_error_log)))
             print(f"\n发现 {len(unique_errors)} 条唯一的地理位置查询错误。")
@@ -291,61 +279,27 @@ jobs:
         print("\n所有处理步骤完成。")
         EOF
     
-    # 第四步：检查脚本运行结果
+    # 第六步：检查脚本运行结果
     - name: Check results
       run: |
+        ls -l
         echo "--- 检查 1.txt ---"
-        if [ -f "1.txt" ]; then
-          echo "文件 '1.txt' 创建成功. 行数: $(wc -l < 1.txt)"
-          head -5 1.txt
-        else
-          echo "文件 '1.txt' 创建失败"
-        fi
+        cat 1.txt || echo "1.txt not found"
         echo "--- 检查 2.txt ---"
-        if [ -f "2.txt" ]; then
-          echo "文件 '2.txt' 创建成功. 行数: $(wc -l < 2.txt)"
-          head -5 2.txt
-        else
-          echo "文件 '2.txt' 创建失败"
-        fi
+        cat 2.txt || echo "2.txt not found"
         echo "--- 检查 3.txt ---"
-        if [ -f "3.txt" ]; then
-          echo "文件 '3.txt' 创建成功. 行数: $(wc -l < 3.txt)"
-          head -5 3.txt
-        else
-          echo "文件 '3.txt' 创建失败"
-        fi
+        cat 3.txt || echo "3.txt not found"
         echo "--- 检查 all.txt ---"
-        if [ -f "all.txt" ]; then
-          echo "文件 'all.txt' 创建成功. 行数: $(wc -l < all.txt)"
-          echo "文件内容预览:"
-          head -10 all.txt
-        else
-          echo "文件 'all.txt' 创建失败"
-        fi
-        if [ -f "geolocation_errors.txt" ]; then
-          echo "--- 发现错误日志 'geolocation_errors.txt' ---"
-          cat geolocation_errors.txt
-        fi
+        cat all.txt || echo "all.txt not found"
+        echo "--- 检查错误日志 ---"
+        cat geolocation_errors.txt || echo "No errors found"
     
-    # 第五步：提交并推送变更到仓库
+    # 第七步：提交并推送变更到仓库
     - name: Commit and push changes
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add 1.txt 2.txt 3.txt all.txt
-        
-        if [ -f "geolocation_errors.txt" ]; then
-          git add geolocation_errors.txt
-        fi
-        
-        # 增加对调试文件的处理
-        if [ -f "debug_screenshot.png" ]; then
-          git add debug_screenshot.png
-        fi
-        if [ -f "debug_page_source.html" ]; then
-          git add debug_page_source.html
-        fi
+        git add 1.txt 2.txt 3.txt all.txt geolocation_errors.txt debug_*.png debug_*.html || true
         
         if git diff --staged --quiet; then
           echo "文件内容无变化，无需提交。"
@@ -354,7 +308,7 @@ jobs:
           git push
         fi
     
-    # 第六步：上传产物，方便下载
+    # 第八步：上传产物，方便下载
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
