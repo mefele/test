@@ -151,8 +151,8 @@ jobs:
                 return []
 
         def get_ips_from_source3():
-            """从源3 (stock.hostmonit.com) 采集电信线路IP - 终极Selenium方案"""
-            url = "https://stock.hostmonit.com/CloudFlareYes"
+            """从源3 (api.uouin.com/cloudflare.html) 采集电信线路IP - 终极Selenium方案"""
+            url = "https://api.uouin.com/cloudflare.html"
             telecom_ips = []
             
             print("正在设置Selenium浏览器...")
@@ -265,7 +265,7 @@ jobs:
         global_error_log.extend(errors2)
 
         # 处理源3
-        print("\n--- 开始处理源3 (stock.hostmonit.com) ---")
+        print("\n--- 开始处理源3 (api.uouin.com/cloudflare.html) ---")
         ips3_raw = get_ips_from_source3()
         valid_ips3 = validate_and_filter_ips(ips3_raw)
         errors3 = process_and_save(valid_ips3, "3.txt")
@@ -366,3 +366,5 @@ jobs:
           debug_page_source.html
         if-no-files-found: ignore
         retention-days: 30
+
+}
