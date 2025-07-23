@@ -4,8 +4,8 @@ name: Collect IP Addresses with Geolocation
 # 工作流触发条件
 on:
   schedule:
-    # 每天UTC时间00:00和12:00执行 (对应北京时间08:00和20:00)
-    - cron: '0 0,12 * * *'
+    # 每天UTC时间00:00, 06:00和12:00执行 (对应北京时间08:00, 14:00和20:00)
+    - cron: '0 0,6,12 * * *'
   workflow_dispatch: # 允许手动触发
 
 # 为工作流设置权限
@@ -24,88 +24,16 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
     
-    # 第二步：安装依赖项并设置Veil-Proxy (FlareSolverr替代品)
-    - name: Install dependencies and Veil-Proxy
+    # 第二步：安装依赖项
+    - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y wget unzip jq curl # 确保基础工具存在
-        # 安装Python库
+        sudo apt-get install -y jq dnsutils
         pip install requests beautifulsoup4 lxml
-        
-        echo "正在动态获取最新的Veil-Proxy下载链接..."
-        # 切换到Veil-Proxy的GitHub仓库，并使用更健壮的jq命令
-        DOWNLOAD_URL=$(curl -s https://api.github.com/repos/Veil-Proxy/Veil-Proxy/releases/latest | jq -r '.assets | .[]? | select(.name | endswith("linux-x64.zip")) | .browser_download_url')
-        
-        if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" == "null" ]; then
-          echo "警告：无法通过API动态获取下载链接。将使用备用链接。"
-          # 更新为Veil-Proxy的稳定版本链接
-          DOWNLOAD_URL="https://github.com/Veil-Proxy/Veil-Proxy/releases/download/v3.3.18/veil-proxy-linux-x64.zip"
-        fi
-        
-        echo "正在从以下链接下载Veil-Proxy: $DOWNLOAD_URL"
-        # 增加下载重试和文件大小校验逻辑
-        DOWNLOAD_SUCCESS=false
-        for i in {1..3}; do
-          # 使用 -f 标志，以便在HTTP错误时失败
-          curl -fL -o veil-proxy.zip "$DOWNLOAD_URL"
-          CURL_EXIT_CODE=$?
-          # 检查curl是否成功并且文件大小是否合理（大于1MB）
-          if [ $CURL_EXIT_CODE -eq 0 ] && [ -f veil-proxy.zip ] && [ $(stat -c%s "veil-proxy.zip") -gt 1000000 ]; then
-            echo "下载成功且文件大小校验通过。"
-            DOWNLOAD_SUCCESS=true
-            break
-          else
-            FILE_SIZE=$(stat -c%s "veil-proxy.zip" 2>/dev/null || echo 0)
-            echo "下载失败或文件太小 (退出码: $CURL_EXIT_CODE, 文件大小: ${FILE_SIZE} B)。第 $i 次尝试..."
-            rm -f veil-proxy.zip
-            sleep 5
-          fi
-        done
-
-        # 如果三次尝试后仍然失败，则退出
-        if [ "$DOWNLOAD_SUCCESS" != true ]; then
-            echo "错误：经过3次尝试后，Veil-Proxy下载失败！"
-            exit 1
-        fi
-
-        # 增加文件完整性校验
-        if ! unzip -t veil-proxy.zip > /dev/null; then
-            echo "错误：下载的Veil-Proxy文件已损坏或不完整！"
-            exit 1
-        fi
-        
-        echo "文件校验通过，正在解压..."
-        unzip veil-proxy.zip
-        rm veil-proxy.zip
-        # 重命名为统一的名称以简化后续步骤
-        mv veil-proxy veil-proxy-executable
-        chmod +x veil-proxy-executable
-        echo "Veil-Proxy设置完毕。"
-
+    
     # 第三步：运行Python脚本采集IP并查询地理位置
     - name: Collect IPs with Geolocation
       run: |
-        # 在后台启动Veil-Proxy服务
-        echo "正在后台启动Veil-Proxy服务..."
-        ./veil-proxy-executable &
-        VEIL_PROXY_PID=$!
-        # 等待更长时间以确保服务完全启动
-        echo "等待15秒以确保Veil-Proxy服务启动..."
-        sleep 15
-        
-        # 对Veil-Proxy进行健康检查
-        echo "正在对Veil-Proxy进行健康检查..."
-        if curl -s --fail http://localhost:8191/health; then
-            echo "Veil-Proxy健康检查通过。"
-        else
-            echo "错误：Veil-Proxy健康检查失败或未启动。"
-            # 停止后台进程并退出
-            kill $VEIL_PROXY_PID
-            exit 1
-        fi
-
-        echo "Veil-Proxy已启动并准备就绪，PID: $VEIL_PROXY_PID"
-
         python3 << 'EOF'
         import requests
         import re
@@ -202,66 +130,6 @@ jobs:
                 print(f"从源2采集失败: {e}")
                 return []
 
-        def get_ips_from_source3():
-            """从源3 (api.uouin.com/cloudflare.html) 采集电信线路IP - 使用Veil-Proxy"""
-            url = "https://api.uouin.com/cloudflare.html"
-            telecom_ips = []
-            
-            print("正在通过Veil-Proxy访问源3...")
-            proxy_url = "http://localhost:8191/v1"
-            payload = {
-                'cmd': 'request.get',
-                'url': url,
-                'maxTimeout': 120000  # 120秒超时
-            }
-            
-            try:
-                response = requests.post(proxy_url, json=payload, timeout=130)
-                response.raise_for_status()
-                data = response.json()
-
-                if data.get('status') == 'ok':
-                    print("Veil-Proxy成功返回页面内容。")
-                    page_source = data['solution']['response']
-                    soup = BeautifulSoup(page_source, 'lxml')
-                    
-                    ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
-
-                    table_body = soup.find('tbody')
-                    if not table_body:
-                        print("错误：在源3中未找到表格主体(tbody)。")
-                        return []
-
-                    rows = table_body.find_all('tr')
-                    print(f"在源3中找到 {len(rows)} 个表格行，开始精确匹配...")
-                    count = 0
-                    for row in rows:
-                        if count >= 10:
-                            break
-                        
-                        cells = row.find_all(['th', 'td'])
-                        if len(cells) > 2:
-                            line_type_cell = cells[1].get_text().strip()
-                            
-                            if '电信' in line_type_cell:
-                                link_tag = row.find('a')
-                                if link_tag and link_tag.has_attr('href'):
-                                    href = link_tag['href']
-                                    ips_found = re.findall(ip_pattern, href)
-                                    if ips_found:
-                                        print(f"  成功(源3): 在线路为'{line_type_cell}'的行中，从链接'{href}'找到IP: {ips_found[0]}")
-                                        telecom_ips.append(ips_found[0])
-                                        count += 1
-                else:
-                    print(f"Veil-Proxy返回错误: {data.get('message')}")
-                    with open('veil_proxy_error.log', 'w') as f:
-                        f.write(json.dumps(data, indent=2))
-
-            except Exception as e:
-                print(f"通过Veil-Proxy采集源3失败: {e}")
-                
-            return telecom_ips
-
         def process_and_save(ip_list, filename):
             """处理IP列表，进行地理位置查询、格式化并保存到文件"""
             if not ip_list:
@@ -311,16 +179,9 @@ jobs:
         errors2 = process_and_save(valid_ips2, "2.txt")
         global_error_log.extend(errors2)
 
-        # 处理源3
-        print("\n--- 开始处理源3 (api.uouin.com) ---")
-        ips3_raw = get_ips_from_source3()
-        valid_ips3 = validate_and_filter_ips(ips3_raw)
-        errors3 = process_and_save(valid_ips3, "3.txt")
-        global_error_log.extend(errors3)
-
         # 合并处理，生成 all.txt
         print("\n--- 开始合并处理，生成 all.txt ---")
-        combined_ips = valid_ips1 + valid_ips2 + valid_ips3
+        combined_ips = valid_ips1 + valid_ips2
         all_unique_ips = sorted(list(set(combined_ips)))
         errors_all = process_and_save(all_unique_ips, "all.txt")
         global_error_log.extend(errors_all)
@@ -334,15 +195,8 @@ jobs:
 
         print("\n所有处理步骤完成。")
         EOF
-
-    # 第四步：停止Veil-Proxy服务
-    - name: Stop Veil-Proxy
-      if: always() # 无论成功或失败都执行
-      run: |
-        echo "正在停止Veil-Proxy服务..."
-        pkill veil-proxy-executable || echo "Veil-Proxy服务未运行或已停止。"
-
-    # 第五步：检查脚本运行结果
+    
+    # 第四步：检查脚本运行结果
     - name: Check results
       run: |
         echo "--- 检查 1.txt ---"
@@ -359,13 +213,6 @@ jobs:
         else
           echo "文件 '2.txt' 创建失败"
         fi
-        echo "--- 检查 3.txt ---"
-        if [ -f "3.txt" ]; then
-          echo "文件 '3.txt' 创建成功. 行数: $(wc -l < 3.txt)"
-          head -5 3.txt
-        else
-          echo "文件 '3.txt' 创建失败"
-        fi
         echo "--- 检查 all.txt ---"
         if [ -f "all.txt" ]; then
           echo "文件 'all.txt' 创建成功. 行数: $(wc -l < all.txt)"
@@ -378,23 +225,16 @@ jobs:
           echo "--- 发现错误日志 'geolocation_errors.txt' ---"
           cat geolocation_errors.txt
         fi
-        if [ -f "veil_proxy_error.log" ]; then
-          echo "--- 发现Veil-Proxy错误日志 ---"
-          cat veil_proxy_error.log
-        fi
     
-    # 第六步：提交并推送变更到仓库
+    # 第五步：提交并推送变更到仓库
     - name: Commit and push changes
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add 1.txt 2.txt 3.txt all.txt
+        git add 1.txt 2.txt all.txt
         
         if [ -f "geolocation_errors.txt" ]; then
           git add geolocation_errors.txt
-        fi
-        if [ -f "veil_proxy_error.log" ]; then
-          git add veil_proxy_error.log
         fi
         
         if git diff --staged --quiet; then
@@ -404,17 +244,15 @@ jobs:
           git push
         fi
     
-    # 第七步：上传产物，方便下载
+    # 第六步：上传产物，方便下载
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ip-lists-and-logs
+        name: ip-lists
         path: |
           1.txt
           2.txt
-          3.txt
           all.txt
           geolocation_errors.txt
-          veil_proxy_error.log
         if-no-files-found: ignore
         retention-days: 30
