@@ -156,13 +156,14 @@ jobs:
                     if count >= 10:
                         break
                     
-                    # 在一行中查找所有数据单元格(td)
-                    cells = row.find_all('td')
+                    # 修正：查找一行中所有的单元格(包括th和td)
+                    cells = row.find_all(['th', 'td'])
                     
-                    # 根据源码结构，线路在第1个<td>(index 0)，IP在第2个<td>(index 1)
-                    if len(cells) > 1:
-                        line_type_cell = cells[0].get_text().strip()
-                        ip_cell_text = cells[1].get_text().strip()
+                    # 修正：根据正确的列索引来提取信息
+                    # cells[0] 是序号(th), cells[1] 是线路(td), cells[2] 是IP(td)
+                    if len(cells) > 2:
+                        line_type_cell = cells[1].get_text().strip()
+                        ip_cell_text = cells[2].get_text().strip()
                         
                         if '电信' in line_type_cell:
                             ips_found = re.findall(ip_pattern, ip_cell_text)
