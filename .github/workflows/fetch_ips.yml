@@ -41,14 +41,25 @@ jobs:
         fi
         
         echo "正在从以下链接下载FlareSolverr: $DOWNLOAD_URL"
-        curl -L -o flaresolverr_linux_x64.zip "$DOWNLOAD_URL"
+        # 增加下载重试逻辑
+        for i in {1..3}; do
+          curl -L -o flaresolverr_linux_x64.zip "$DOWNLOAD_URL"
+          if [ $? -eq 0 ]; then
+            echo "下载成功。"
+            break
+          else
+            echo "下载失败，第 $i 次尝试..."
+            sleep 5
+          fi
+        done
 
-        if [ ! -f flaresolverr_linux_x64.zip ]; then
-            echo "错误：FlareSolverr下载失败！文件未找到。"
+        # 增加文件完整性校验
+        if ! unzip -t flaresolverr_linux_x64.zip > /dev/null; then
+            echo "错误：下载的FlareSolverr文件已损坏或不完整！"
             exit 1
         fi
         
-        echo "下载成功，正在解压..."
+        echo "文件校验通过，正在解压..."
         unzip flaresolverr_linux_x64.zip
         rm flaresolverr_linux_x64.zip
         chmod +x flaresolverr
