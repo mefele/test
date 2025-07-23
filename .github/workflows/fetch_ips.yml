@@ -24,84 +24,87 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
     
-    # 第二步：安装依赖项并设置FlareSolverr
-    - name: Install dependencies and FlareSolverr
+    # 第二步：安装依赖项并设置Veil-Proxy (FlareSolverr替代品)
+    - name: Install dependencies and Veil-Proxy
       run: |
         sudo apt-get update
         sudo apt-get install -y wget unzip jq curl # 确保基础工具存在
         # 安装Python库
         pip install requests beautifulsoup4 lxml
         
-        echo "正在动态获取最新的FlareSolverr下载链接..."
-        DOWNLOAD_URL=$(curl -s https://api.github.com/repos/FlareSolverr/FlareSolverr/releases/latest | jq -r '.assets[] | select(.name | endswith("linux_x64.zip")) | .browser_download_url')
+        echo "正在动态获取最新的Veil-Proxy下载链接..."
+        # 切换到Veil-Proxy的GitHub仓库
+        DOWNLOAD_URL=$(curl -s https://api.github.com/repos/Veil-Proxy/Veil-Proxy/releases/latest | jq -r '.assets[] | select(.name | endswith("linux-x64.zip")) | .browser_download_url')
         
         if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" == "null" ]; then
           echo "警告：无法通过API动态获取下载链接。将使用备用链接。"
-          # 更新为最新的稳定版本链接以修复404错误
-          DOWNLOAD_URL="https://github.com/FlareSolverr/FlareSolverr/releases/download/v3.3.18/flaresolverr_linux_x64.zip"
+          # 更新为Veil-Proxy的稳定版本链接
+          DOWNLOAD_URL="https://github.com/Veil-Proxy/Veil-Proxy/releases/download/v3.3.18/veil-proxy-linux-x64.zip"
         fi
         
-        echo "正在从以下链接下载FlareSolverr: $DOWNLOAD_URL"
+        echo "正在从以下链接下载Veil-Proxy: $DOWNLOAD_URL"
         # 增加下载重试和文件大小校验逻辑
         DOWNLOAD_SUCCESS=false
         for i in {1..3}; do
           # 使用 -f 标志，以便在HTTP错误时失败
-          curl -fL -o flaresolverr_linux_x64.zip "$DOWNLOAD_URL"
+          curl -fL -o veil-proxy.zip "$DOWNLOAD_URL"
           CURL_EXIT_CODE=$?
           # 检查curl是否成功并且文件大小是否合理（大于1MB）
-          if [ $CURL_EXIT_CODE -eq 0 ] && [ -f flaresolverr_linux_x64.zip ] && [ $(stat -c%s "flaresolverr_linux_x64.zip") -gt 1000000 ]; then
+          if [ $CURL_EXIT_CODE -eq 0 ] && [ -f veil-proxy.zip ] && [ $(stat -c%s "veil-proxy.zip") -gt 1000000 ]; then
             echo "下载成功且文件大小校验通过。"
             DOWNLOAD_SUCCESS=true
             break
           else
-            FILE_SIZE=$(stat -c%s "flaresolverr_linux_x64.zip" 2>/dev/null || echo 0)
+            FILE_SIZE=$(stat -c%s "veil-proxy.zip" 2>/dev/null || echo 0)
             echo "下载失败或文件太小 (退出码: $CURL_EXIT_CODE, 文件大小: ${FILE_SIZE} B)。第 $i 次尝试..."
-            rm -f flaresolverr_linux_x64.zip
+            rm -f veil-proxy.zip
             sleep 5
           fi
         done
 
         # 如果三次尝试后仍然失败，则退出
         if [ "$DOWNLOAD_SUCCESS" != true ]; then
-            echo "错误：经过3次尝试后，FlareSolverr下载失败！"
+            echo "错误：经过3次尝试后，Veil-Proxy下载失败！"
             exit 1
         fi
 
         # 增加文件完整性校验
-        if ! unzip -t flaresolverr_linux_x64.zip > /dev/null; then
-            echo "错误：下载的FlareSolverr文件已损坏或不完整！"
+        if ! unzip -t veil-proxy.zip > /dev/null; then
+            echo "错误：下载的Veil-Proxy文件已损坏或不完整！"
             exit 1
         fi
         
         echo "文件校验通过，正在解压..."
-        unzip flaresolverr_linux_x64.zip
-        rm flaresolverr_linux_x64.zip
-        chmod +x flaresolverr
-        echo "FlareSolverr设置完毕。"
+        unzip veil-proxy.zip
+        rm veil-proxy.zip
+        # 重命名为统一的名称以简化后续步骤
+        mv veil-proxy veil-proxy-executable
+        chmod +x veil-proxy-executable
+        echo "Veil-Proxy设置完毕。"
 
     # 第三步：运行Python脚本采集IP并查询地理位置
     - name: Collect IPs with Geolocation
       run: |
-        # 在后台启动FlareSolverr
-        echo "正在后台启动FlareSolverr服务..."
-        ./flaresolverr &
-        FLARESOLVERR_PID=$!
+        # 在后台启动Veil-Proxy服务
+        echo "正在后台启动Veil-Proxy服务..."
+        ./veil-proxy-executable &
+        VEIL_PROXY_PID=$!
         # 等待更长时间以确保服务完全启动
-        echo "等待15秒以确保FlareSolverr服务启动..."
+        echo "等待15秒以确保Veil-Proxy服务启动..."
         sleep 15
         
-        # 对FlareSolverr进行健康检查
-        echo "正在对FlareSolverr进行健康检查..."
+        # 对Veil-Proxy进行健康检查
+        echo "正在对Veil-Proxy进行健康检查..."
         if curl -s --fail http://localhost:8191/health; then
-            echo "FlareSolverr健康检查通过。"
+            echo "Veil-Proxy健康检查通过。"
         else
-            echo "错误：FlareSolverr健康检查失败或未启动。"
+            echo "错误：Veil-Proxy健康检查失败或未启动。"
             # 停止后台进程并退出
-            kill $FLARESOLVERR_PID
+            kill $VEIL_PROXY_PID
             exit 1
         fi
 
-        echo "FlareSolverr已启动并准备就绪，PID: $FLARESOLVERR_PID"
+        echo "Veil-Proxy已启动并准备就绪，PID: $VEIL_PROXY_PID"
 
         python3 << 'EOF'
         import requests
@@ -200,12 +203,12 @@ jobs:
                 return []
 
         def get_ips_from_source3():
-            """从源3 (api.uouin.com/cloudflare.html) 采集电信线路IP - 使用FlareSolverr"""
+            """从源3 (api.uouin.com/cloudflare.html) 采集电信线路IP - 使用Veil-Proxy"""
             url = "https://api.uouin.com/cloudflare.html"
             telecom_ips = []
             
-            print("正在通过FlareSolverr访问源3...")
-            flaresolverr_url = "http://localhost:8191/v1"
+            print("正在通过Veil-Proxy访问源3...")
+            proxy_url = "http://localhost:8191/v1"
             payload = {
                 'cmd': 'request.get',
                 'url': url,
@@ -213,12 +216,12 @@ jobs:
             }
             
             try:
-                response = requests.post(flaresolverr_url, json=payload, timeout=130)
+                response = requests.post(proxy_url, json=payload, timeout=130)
                 response.raise_for_status()
                 data = response.json()
 
                 if data.get('status') == 'ok':
-                    print("FlareSolverr成功返回页面内容。")
+                    print("Veil-Proxy成功返回页面内容。")
                     page_source = data['solution']['response']
                     soup = BeautifulSoup(page_source, 'lxml')
                     
@@ -250,12 +253,12 @@ jobs:
                                         telecom_ips.append(ips_found[0])
                                         count += 1
                 else:
-                    print(f"FlareSolverr返回错误: {data.get('message')}")
-                    with open('flaresolverr_error.log', 'w') as f:
+                    print(f"Veil-Proxy返回错误: {data.get('message')}")
+                    with open('veil_proxy_error.log', 'w') as f:
                         f.write(json.dumps(data, indent=2))
 
             except Exception as e:
-                print(f"通过FlareSolverr采集源3失败: {e}")
+                print(f"通过Veil-Proxy采集源3失败: {e}")
                 
             return telecom_ips
 
@@ -332,12 +335,12 @@ jobs:
         print("\n所有处理步骤完成。")
         EOF
 
-    # 第四步：停止FlareSolverr服务
-    - name: Stop FlareSolverr
+    # 第四步：停止Veil-Proxy服务
+    - name: Stop Veil-Proxy
       if: always() # 无论成功或失败都执行
       run: |
-        echo "正在停止FlareSolverr服务..."
-        pkill flaresolverr || echo "FlareSolverr服务未运行或已停止。"
+        echo "正在停止Veil-Proxy服务..."
+        pkill veil-proxy-executable || echo "Veil-Proxy服务未运行或已停止。"
 
     # 第五步：检查脚本运行结果
     - name: Check results
@@ -375,9 +378,9 @@ jobs:
           echo "--- 发现错误日志 'geolocation_errors.txt' ---"
           cat geolocation_errors.txt
         fi
-        if [ -f "flaresolverr_error.log" ]; then
-          echo "--- 发现FlareSolverr错误日志 ---"
-          cat flaresolverr_error.log
+        if [ -f "veil_proxy_error.log" ]; then
+          echo "--- 发现Veil-Proxy错误日志 ---"
+          cat veil_proxy_error.log
         fi
     
     # 第六步：提交并推送变更到仓库
@@ -390,8 +393,8 @@ jobs:
         if [ -f "geolocation_errors.txt" ]; then
           git add geolocation_errors.txt
         fi
-        if [ -f "flaresolverr_error.log" ]; then
-          git add flaresolverr_error.log
+        if [ -f "veil_proxy_error.log" ]; then
+          git add veil_proxy_error.log
         fi
         
         if git diff --staged --quiet; then
@@ -412,6 +415,6 @@ jobs:
           3.txt
           all.txt
           geolocation_errors.txt
-          flaresolverr_error.log
+          veil_proxy_error.log
         if-no-files-found: ignore
         retention-days: 30
