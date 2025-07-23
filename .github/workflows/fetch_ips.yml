@@ -33,8 +33,8 @@ jobs:
         pip install requests beautifulsoup4 lxml
         
         echo "正在动态获取最新的Veil-Proxy下载链接..."
-        # 切换到Veil-Proxy的GitHub仓库
-        DOWNLOAD_URL=$(curl -s https://api.github.com/repos/Veil-Proxy/Veil-Proxy/releases/latest | jq -r '.assets[] | select(.name | endswith("linux-x64.zip")) | .browser_download_url')
+        # 切换到Veil-Proxy的GitHub仓库，并使用更健壮的jq命令
+        DOWNLOAD_URL=$(curl -s https://api.github.com/repos/Veil-Proxy/Veil-Proxy/releases/latest | jq -r '.assets | .[]? | select(.name | endswith("linux-x64.zip")) | .browser_download_url')
         
         if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" == "null" ]; then
           echo "警告：无法通过API动态获取下载链接。将使用备用链接。"
