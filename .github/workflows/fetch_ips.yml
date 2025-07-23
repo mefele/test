@@ -24,16 +24,60 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
     
-    # 第二步：安装依赖项
-    - name: Install dependencies
+    # 第二步：安装依赖项并设置FlareSolverr
+    - name: Install dependencies and FlareSolverr
       run: |
         sudo apt-get update
-        sudo apt-get install -y jq dnsutils
+        sudo apt-get install -y wget unzip jq curl # 确保基础工具存在
+        # 安装Python库
         pip install requests beautifulsoup4 lxml
-    
+        
+        echo "正在动态获取最新的FlareSolverr下载链接..."
+        DOWNLOAD_URL=$(curl -s https://api.github.com/repos/FlareSolverr/FlareSolverr/releases/latest | jq -r '.assets[] | select(.name | endswith("linux_x64.zip")) | .browser_download_url')
+        
+        if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" == "null" ]; then
+          echo "警告：无法通过API动态获取下载链接。将使用备用链接。"
+          DOWNLOAD_URL="https://github.com/FlareSolverr/FlareSolverr/releases/download/v3.3.17/flaresolverr_linux_x64.zip"
+        fi
+        
+        echo "正在从以下链接下载FlareSolverr: $DOWNLOAD_URL"
+        curl -L -o flaresolverr_linux_x64.zip "$DOWNLOAD_URL"
+
+        if [ ! -f flaresolverr_linux_x64.zip ]; then
+            echo "错误：FlareSolverr下载失败！文件未找到。"
+            exit 1
+        fi
+        
+        echo "下载成功，正在解压..."
+        unzip flaresolverr_linux_x64.zip
+        rm flaresolverr_linux_x64.zip
+        chmod +x flaresolverr
+        echo "FlareSolverr设置完毕。"
+
     # 第三步：运行Python脚本采集IP并查询地理位置
     - name: Collect IPs with Geolocation
       run: |
+        # 在后台启动FlareSolverr
+        echo "正在后台启动FlareSolverr服务..."
+        ./flaresolverr &
+        FLARESOLVERR_PID=$!
+        # 等待更长时间以确保服务完全启动
+        echo "等待15秒以确保FlareSolverr服务启动..."
+        sleep 15
+        
+        # 对FlareSolverr进行健康检查
+        echo "正在对FlareSolverr进行健康检查..."
+        if curl -s --fail http://localhost:8191/health; then
+            echo "FlareSolverr健康检查通过。"
+        else
+            echo "错误：FlareSolverr健康检查失败或未启动。"
+            # 停止后台进程并退出
+            kill $FLARESOLVERR_PID
+            exit 1
+        fi
+
+        echo "FlareSolverr已启动并准备就绪，PID: $FLARESOLVERR_PID"
+
         python3 << 'EOF'
         import requests
         import re
@@ -131,49 +175,64 @@ jobs:
                 return []
 
         def get_ips_from_source3():
-            """从源3 (api.uouin.com/cloudflare.html) 采集电信线路IP - 从链接提取IP"""
+            """从源3 (api.uouin.com/cloudflare.html) 采集电信线路IP - 使用FlareSolverr"""
             url = "https://api.uouin.com/cloudflare.html"
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'}
+            telecom_ips = []
+            
+            print("正在通过FlareSolverr访问源3...")
+            flaresolverr_url = "http://localhost:8191/v1"
+            payload = {
+                'cmd': 'request.get',
+                'url': url,
+                'maxTimeout': 120000  # 120秒超时
+            }
+            
             try:
-                print("正在尝试从源3获取内容...")
-                response = requests.get(url, headers=headers, timeout=30)
+                response = requests.post(flaresolverr_url, json=payload, timeout=130)
                 response.raise_for_status()
-                soup = BeautifulSoup(response.text, 'lxml')
-                
-                telecom_ips = []
-                ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
+                data = response.json()
 
-                table_body = soup.find('tbody')
-                if not table_body:
-                    print("错误：在源3中未找到表格主体(tbody)。")
-                    return []
-
-                rows = table_body.find_all('tr')
-                print(f"在源3中找到 {len(rows)} 个表格行，开始精确匹配...")
-                count = 0
-                for row in rows:
-                    if count >= 10:
-                        break
+                if data.get('status') == 'ok':
+                    print("FlareSolverr成功返回页面内容。")
+                    page_source = data['solution']['response']
+                    soup = BeautifulSoup(page_source, 'lxml')
                     
-                    cells = row.find_all(['th', 'td'])
-                    if len(cells) > 2:
-                        line_type_cell = cells[1].get_text().strip()
+                    ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
+
+                    table_body = soup.find('tbody')
+                    if not table_body:
+                        print("错误：在源3中未找到表格主体(tbody)。")
+                        return []
+
+                    rows = table_body.find_all('tr')
+                    print(f"在源3中找到 {len(rows)} 个表格行，开始精确匹配...")
+                    count = 0
+                    for row in rows:
+                        if count >= 10:
+                            break
                         
-                        if '电信' in line_type_cell:
-                            # 从行内查找<a>标签
-                            link_tag = row.find('a')
-                            if link_tag and link_tag.has_attr('href'):
-                                href = link_tag['href']
-                                # 从href中提取IP
-                                ips_found = re.findall(ip_pattern, href)
-                                if ips_found:
-                                    print(f"  成功(源3): 在线路为'{line_type_cell}'的行中，从链接'{href}'找到IP: {ips_found[0]}")
-                                    telecom_ips.append(ips_found[0])
-                                    count += 1
-                return telecom_ips
+                        cells = row.find_all(['th', 'td'])
+                        if len(cells) > 2:
+                            line_type_cell = cells[1].get_text().strip()
+                            
+                            if '电信' in line_type_cell:
+                                link_tag = row.find('a')
+                                if link_tag and link_tag.has_attr('href'):
+                                    href = link_tag['href']
+                                    ips_found = re.findall(ip_pattern, href)
+                                    if ips_found:
+                                        print(f"  成功(源3): 在线路为'{line_type_cell}'的行中，从链接'{href}'找到IP: {ips_found[0]}")
+                                        telecom_ips.append(ips_found[0])
+                                        count += 1
+                else:
+                    print(f"FlareSolverr返回错误: {data.get('message')}")
+                    with open('flaresolverr_error.log', 'w') as f:
+                        f.write(json.dumps(data, indent=2))
+
             except Exception as e:
-                print(f"从源3采集失败: {e}")
-                return []
+                print(f"通过FlareSolverr采集源3失败: {e}")
+                
+            return telecom_ips
 
         def process_and_save(ip_list, filename):
             """处理IP列表，进行地理位置查询、格式化并保存到文件"""
@@ -247,8 +306,15 @@ jobs:
 
         print("\n所有处理步骤完成。")
         EOF
-    
-    # 第四步：检查脚本运行结果
+
+    # 第四步：停止FlareSolverr服务
+    - name: Stop FlareSolverr
+      if: always() # 无论成功或失败都执行
+      run: |
+        echo "正在停止FlareSolverr服务..."
+        pkill flaresolverr || echo "FlareSolverr服务未运行或已停止。"
+
+    # 第五步：检查脚本运行结果
     - name: Check results
       run: |
         echo "--- 检查 1.txt ---"
@@ -284,8 +350,12 @@ jobs:
           echo "--- 发现错误日志 'geolocation_errors.txt' ---"
           cat geolocation_errors.txt
         fi
+        if [ -f "flaresolverr_error.log" ]; then
+          echo "--- 发现FlareSolverr错误日志 ---"
+          cat flaresolverr_error.log
+        fi
     
-    # 第五步：提交并推送变更到仓库
+    # 第六步：提交并推送变更到仓库
     - name: Commit and push changes
       run: |
         git config --local user.email "action@github.com"
@@ -295,6 +365,9 @@ jobs:
         if [ -f "geolocation_errors.txt" ]; then
           git add geolocation_errors.txt
         fi
+        if [ -f "flaresolverr_error.log" ]; then
+          git add flaresolverr_error.log
+        fi
         
         if git diff --staged --quiet; then
           echo "文件内容无变化，无需提交。"
@@ -303,16 +376,17 @@ jobs:
           git push
         fi
     
-    # 第六步：上传产物，方便下载
+    # 第七步：上传产物，方便下载
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ip-lists
+        name: ip-lists-and-logs
         path: |
           1.txt
           2.txt
           3.txt
           all.txt
           geolocation_errors.txt
+          flaresolverr_error.log
         if-no-files-found: ignore
         retention-days: 30
