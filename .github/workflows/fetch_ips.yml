@@ -86,7 +86,7 @@ jobs:
 
         def get_ips_from_source1():
             """从源1 (cf.090227.xyz) 采集电信线路IP"""
-            url = "https://cf.090227.xyz/"
+            url = "https://raw.githubusercontent.com/ethgan/yxip/refs/heads/main/ip.txt"
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'}
             try:
                 print("正在尝试从源1获取内容...")
