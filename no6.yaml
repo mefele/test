@@ -226,7 +226,7 @@ proxy-providers:
       udp: true
     proxy: 🟢 直连
     type: http
-    url: http://192.168.2.1:3001/CKg2abstVnOeR6m1aB4G/download/V1
+    url: http://192.168.1.13:3012/api123456789/download/joy
   Airport_02:
     filter: ^(?!.*(拒绝|直连|群|邀请|返利|循环|官网|客服|网站|网址|获取|订阅|流量|到期|机场|下次|版本|官址|备用|过期|已用|联系|邮箱|工单|贩卖|通知|倒卖|防止|国内|地址|频道|无法|说明|提示|特别|访问|支持|教程|关注|更新|作者|加入|USE|USED|TOTAL|EXPIRE|EMAIL|Panel|Channel|Author|traffic))
     health-check: *id004
@@ -237,7 +237,7 @@ proxy-providers:
       udp: true
     proxy: 🟢 直连
     type: http
-    url: http://192.168.2.1:3001/CKg2abstVnOeR6m1aB4G/download/V2
+    url: http://192.168.1.13:3012/api123456789/download/cook
   Airport_03:
     filter: ^(?!.*(拒绝|直连|群|邀请|返利|循环|官网|客服|网站|网址|获取|订阅|流量|到期|机场|下次|版本|官址|备用|过期|已用|联系|邮箱|工单|贩卖|通知|倒卖|防止|国内|地址|频道|无法|说明|提示|特别|访问|支持|教程|关注|更新|作者|加入|USE|USED|TOTAL|EXPIRE|EMAIL|Panel|Channel|Author|traffic))
     health-check: *id004
